@@ -1,0 +1,23 @@
+# Environnements virtuels
+backend/envP_A/
+
+# Fichiers Python compilés
+__pycache__/
+*.py[cod]
+
+# Base de données
+*.sqlite3
+
+# Logs
+*.log
+
+# Fichier d'environnement
+.env
+
+# Fichiers des IDE
+.vscode/
+.idea/
+
+# Fichiers système
+.DS_Store
+Thumbs.db
