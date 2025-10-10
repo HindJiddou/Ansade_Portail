@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import CategorieViewSet, ThemeViewSet, TableauViewSet, DonneesViewSet, ImportExcelView,TableauDetailStructureView,TableauFiltreView,TableauFiltresOptionsView, TableauFiltreStructureView,TableauAnalyseAPIView,CarteParTableauAPIView,ListeSourcesAPIView, TableauxParSourceAPIView,RechercheGlobaleAPIView
+from .views import CategorieViewSet, ThemeViewSet, TableauViewSet, DonneesViewSet, ImportExcelView,TableauDetailStructureView,TableauFiltreView,TableauFiltresOptionsView, TableauFiltreStructureView,TableauAnalyseAPIView,CarteParTableauAPIView,ListeSourcesAPIView, TableauxParSourceAPIView,RechercheGlobaleAPIView,UserInfoAPIView,CustomLoginView
 
 router = DefaultRouter()
 router.register(r'categories', CategorieViewSet)
@@ -20,6 +20,9 @@ urlpatterns = [
     path('sources/', ListeSourcesAPIView.as_view(), name='liste-sources'),
     path('sources/<path:source>/tableaux/', TableauxParSourceAPIView.as_view(), name='tableaux-par-source'),
     path("recherche-globale/", RechercheGlobaleAPIView.as_view(), name="recherche-globale"),
+    path("user-info/", UserInfoAPIView.as_view(), name="user-info"),
+    path('login/', CustomLoginView.as_view(), name='custom_login'),
+
 
 
 

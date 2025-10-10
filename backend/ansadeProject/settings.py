@@ -81,7 +81,7 @@ DATABASES = {
         # 'ENGINE': 'django.db.backends.sqlite3',
         # 'NAME': BASE_DIR / 'db.sqlite3',
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'postgres',
+        'NAME': 'ansade_db',
         'USER': 'postgres',
         'PASSWORD': 'admin',
         'HOST': 'localhost',
@@ -94,6 +94,9 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     )
 }
+
+AUTH_USER_MODEL = 'ansade_app.User'
+
 
 
 # Password validation
@@ -130,7 +133,19 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
+# Static files (CSS, JavaScript, Images)
+# https://docs.djangoproject.com/en/5.2/howto/static-files/
+
+STATIC_URL = '/static/'
+
+# Dossier où collectstatic va copier tous les fichiers statiques
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# (Optionnel) répertoires contenant tes fichiers statiques personnalisés
+STATICFILES_DIRS = [
+    BASE_DIR / 'static',
+]
+
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

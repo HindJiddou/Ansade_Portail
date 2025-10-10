@@ -1,23 +1,31 @@
 # Environnements virtuels
-backend/envP_A/
+env/
+envP_A/
+venv/
 
-# Fichiers Python compilés
+# Python cache
 __pycache__/
-*.py[cod]
+*.pyc
 
-# Base de données
-*.sqlite3
+# Fichiers de base de données locales
+db.sqlite3
 
-# Logs
-*.log
+# Static & Media files
+staticfiles/
+media/
 
-# Fichier d'environnement
-.env
-
-# Fichiers des IDE
-.vscode/
-.idea/
+# Node & React
+node_modules/
+build/
+dist/
 
 # Fichiers système
 .DS_Store
 Thumbs.db
+
+# VSCode et IDE
+.vscode/
+.idea/
+
+# Env secrets
+.env

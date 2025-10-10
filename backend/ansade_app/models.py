@@ -1,11 +1,51 @@
+# models.py
+
+from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
-from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
+from django.utils import timezone
 
 class Categorie(models.Model):
     nom_cat = models.CharField(max_length=255)
 
     def __str__(self):
         return self.nom_cat
+
+class UserManager(BaseUserManager):
+    def create_user(self, email, password=None, **extra_fields):
+        if not email:
+            raise ValueError("L'adresse email est obligatoire")
+        email = self.normalize_email(email)
+        user = self.model(email=email, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, email, password=None, **extra_fields):
+        extra_fields.setdefault('is_staff', True)
+        extra_fields.setdefault('is_superuser', True)
+
+        if extra_fields.get('is_staff') is not True:
+            raise ValueError('Le superutilisateur doit avoir is_staff=True.')
+        if extra_fields.get('is_superuser') is not True:
+            raise ValueError('Le superutilisateur doit avoir is_superuser=True.')
+
+        return self.create_user(email, password, **extra_fields)
+
+class User(AbstractBaseUser, PermissionsMixin):
+    email = models.EmailField(unique=True)
+    is_chef = models.BooleanField(default=False)
+    categorie = models.ForeignKey(Categorie, on_delete=models.SET_NULL, null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False)
+    date_joined = models.DateTimeField(default=timezone.now)
+
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = []
+
+    objects = UserManager()
+
+    def __str__(self):
+        return self.email
 
 
 class Theme(models.Model):
@@ -26,52 +66,30 @@ class Tableau(models.Model):
     def __str__(self):
         return self.titre
 
+class LigneIndicateur(models.Model):
+    tableau = models.ForeignKey(Tableau, on_delete=models.CASCADE)
+    label = models.TextField()
+    code = models.CharField(max_length=100, blank=True, null=True)
+    parent_code = models.CharField(max_length=100, blank=True, null=True)
+    ordre = models.IntegerField(blank=True, null=True)
+
+    class Meta:
+        ordering = ['ordre']
+
+    def __str__(self):
+        return self.label
+
+
+# models.py
 
 class Donnees(models.Model):
-    ligne = models.CharField(max_length=255)
+    ligne = models.ForeignKey("LigneIndicateur", on_delete=models.SET_NULL, null=True, blank=True)  # ✅ null autorisé
     colonne = models.CharField(max_length=255)
-    unite = models.CharField(max_length=100)
-    source = models.CharField(max_length=255)
+    unite = models.CharField(max_length=50, blank=True)
+    source = models.TextField(blank=True)
     valeur = models.FloatField()
     categorie = models.ForeignKey(Categorie, on_delete=models.CASCADE)
     tableau = models.ForeignKey(Tableau, on_delete=models.CASCADE)
 
-
-# class UserManager(BaseUserManager):
-#     def create_user(self, email, nom_prenom, password=None):
-#         user = self.model(email=email, nom_prenom=nom_prenom)
-#         user.set_password(password)
-#         user.save()
-#         return user
-
-#     def create_superuser(self, email, nom_prenom, password=None):
-#         user = self.create_user(email=email, nom_prenom=nom_prenom, password=password)
-#         user.is_admin = True
-#         user.active = True
-#         user.save()
-#         return user
-
-
-# class User(AbstractBaseUser):
-#     nom_prenom = models.CharField(max_length=100)
-#     email = models.EmailField(unique=True)
-#     mot_de_passe = models.CharField(max_length=255)
-#     role = models.CharField(max_length=255)
-#     active = models.BooleanField(default=False)
-#     is_admin = models.BooleanField(default=False)
-#     date_creation = models.DateTimeField(auto_now_add=True)
-#     categorie = models.ForeignKey(Categorie, on_delete=models.SET_NULL, null=True)
-
-#     USERNAME_FIELD = 'email'
-#     REQUIRED_FIELDS = ['nom_prenom']
-
-#     objects = UserManager()
-
-#     def __str__(self):
-#         return self.nom_prenom
-
-#     def has_perm(self, perm, obj=None):
-#         return self.is_admin
-
-#     def has_module_perms(self, app_label):
-#         return self.is_admin
+    def __str__(self):
+        return f"{self.ligne} - {self.colonne}: {self.valeur}"

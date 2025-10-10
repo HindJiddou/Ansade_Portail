@@ -1,6 +1,6 @@
 from rest_framework import viewsets
-from .models import Categorie, Theme, Tableau, Donnees
-from .serializers import CategorieSerializer, ThemeSerializer, TableauSerializer, DonneesSerializer
+from .models import Categorie, Theme, Tableau, Donnees,LigneIndicateur
+from .serializers import CategorieSerializer, ThemeSerializer, TableauSerializer, DonneesSerializer,LigneIndicateurSerializer
 import openpyxl
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -14,23 +14,91 @@ import math
 import openpyxl
 from django.db.models import Q
 from django.db.models import F
+from rest_framework.permissions import IsAuthenticated,IsAdminUser,AllowAny
+from .permissions import IsChef
+from rest_framework_simplejwt.views import TokenObtainPairView
+from .serializers import CustomTokenObtainPairSerializer
+from rest_framework.authtoken.views import ObtainAuthToken
+from rest_framework.authtoken.models import Token
+from .serializers import UserSerializer
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.contrib.auth import authenticate
+
+
+class CustomLoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get("email")
+        password = request.data.get("password")
+
+        user = authenticate(request, email=email, password=password)
+        if user is None:
+            return Response({"error": "Email ou mot de passe incorrect"}, status=401)
+
+        refresh = RefreshToken.for_user(user)
+        user_data = UserSerializer(user).data
+
+        return Response({
+            "refresh": str(refresh),
+            "access": str(refresh.access_token),
+            "user": user_data
+        })
+
+
+class CustomTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer
+
+# views.py
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+class UserInfoAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        return Response({
+            "id": user.id,
+            "email": user.email,
+            "is_superuser": user.is_superuser,
+            "is_chef": user.is_chef,
+        })
+
 
 
 class CategorieViewSet(viewsets.ModelViewSet):
     queryset = Categorie.objects.all()
     serializer_class = CategorieSerializer
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsAdminUser()]
+        return []
 
 class ThemeViewSet(viewsets.ModelViewSet):
     queryset = Theme.objects.all()
     serializer_class = ThemeSerializer
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsAdminUser()]
+        return []
 
 class TableauViewSet(viewsets.ModelViewSet):
     queryset = Tableau.objects.all()
     serializer_class = TableauSerializer
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsChef()]
+        return []
 
 class DonneesViewSet(viewsets.ModelViewSet):
     queryset = Donnees.objects.all()
     serializer_class = DonneesSerializer
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsChef()]
+        return []
 
 
 class ListeSourcesAPIView(APIView):
@@ -82,11 +150,16 @@ class RechercheGlobaleAPIView(APIView):
 
         return Response(results)
 
-
 class ImportExcelView(APIView):
     parser_classes = [MultiPartParser]
+    permission_classes = [IsChef]
 
     def post(self, request):
+        # Sécurité: un chef ne peut importer que dans sa catégorie
+        if request.user.is_chef and not request.user.is_superuser:
+            if int(request.data.get('cat_id')) != request.user.categorie_id:
+                return Response({'error': 'Vous ne pouvez importer que dans votre propre catégorie'}, status=403)
+
         fichier_excel = request.FILES.get('file')
         id_theme = request.data.get('theme_id')
         id_cat = request.data.get('cat_id')
@@ -99,68 +172,224 @@ class ImportExcelView(APIView):
         except Exception as e:
             return Response({'error': f'Erreur de lecture du fichier : {str(e)}'}, status=400)
 
+        # --------- helpers ---------
+        def parse_numeric(cell):
+            """Retourne (valeur_float_ou_None, had_percent_sign: bool)"""
+            if isinstance(cell, str):
+                had_pct = '%' in cell
+                txt = (cell.replace('%', '')
+                           .replace('\u202f', '')
+                           .replace(' ', '')
+                           .replace(',', '.')).strip()
+                if txt == '':
+                    return None, had_pct
+                try:
+                    return float(txt), had_pct
+                except ValueError:
+                    return None, had_pct
+            elif isinstance(cell, (int, float)):
+                return float(cell), False
+            return None, False
+
         for feuille in wb.sheetnames:
             ws = wb[feuille]
 
-            titre = ''
-            source = ''
-            headers = []
             lignes = []
-            started = False
-            etiquette_ligne_detectee = "Indicateur"
+            first_non_empty_row = None  # garde la 1ère ligne non vide pour tester le "nouveau format"
 
             for row in ws.iter_rows(values_only=True):
                 row_str = [str(cell).strip() if cell is not None else '' for cell in row]
+                if all(cell == '' for cell in row_str):
+                    continue
+                if first_non_empty_row is None:
+                    first_non_empty_row = row_str
+                lignes.append(row_str)
 
-                if not started and any("Tableau" in cell for cell in row_str):
-                    titre = ' '.join(row_str).strip()
-                    started = True
+            if not lignes:
+                continue
+
+            # ===== Test "nouveau format" sur la 1ère ligne non vide
+            normalized_first_row = [h.lower() for h in (first_non_empty_row or [])]
+            is_new_format = all(col in normalized_first_row
+                                for col in ["titre_fr", "source_fr", "ordre", "code", "parent", "des_fr"])
+
+            # ==============================
+            # NOUVEAU FORMAT (structuré)
+            # ==============================
+            if is_new_format:
+                try:
+                    titre_fr_idx = normalized_first_row.index('titre_fr')
+                    source_fr_idx = normalized_first_row.index('source_fr')
+                    ordre_idx    = normalized_first_row.index('ordre')
+                    code_idx     = normalized_first_row.index('code')
+                    parent_idx   = normalized_first_row.index('parent')
+                    des_fr_idx   = normalized_first_row.index('des_fr')
+                except ValueError as e:
+                    return Response({'error': f"Colonnes manquantes : {str(e)}"}, status=400)
+
+                # Colonnes années = tout ce qui vient après des_fr
+                annee_indexes = [i for i in range(des_fr_idx + 1, len(first_non_empty_row))]
+
+                if len(lignes) < 2:
+                    continue  # pas de données
+
+                titre = lignes[1][titre_fr_idx]
+                source = lignes[1][source_fr_idx]
+                is_pourcentage = "%" in titre
+
+                tableau = Tableau.objects.create(
+                    nom_feuille=feuille,
+                    titre=titre,
+                    theme_id=id_theme,
+                    source=source,
+                    etiquette_ligne="Indicateur"
+                )
+
+                # Itérer sur les lignes de données (sauter l'entête)
+                for row in lignes[1:]:
+                    label = str(row[des_fr_idx]).strip() if len(row) > des_fr_idx else ''
+                    if not label:
+                        continue
+
+                    code = str(row[code_idx]).strip() if len(row) > code_idx and row[code_idx] else ''
+                    parent_code = str(row[parent_idx]).strip() if len(row) > parent_idx and row[parent_idx] else ''
+
+                    ordre = None
+                    if len(row) > ordre_idx and row[ordre_idx] != '':
+                        try:
+                            ordre = int(float(str(row[ordre_idx]).replace(',', '.')))
+                        except Exception:
+                            ordre = None
+
+                    ligne_obj = LigneIndicateur.objects.create(
+                        tableau=tableau,
+                        label=label,
+                        code=code,
+                        parent_code=parent_code,
+                        ordre=ordre
+                    )
+
+                    for idx in annee_indexes:
+                        if idx >= len(row):
+                            continue
+                        annee = first_non_empty_row[idx]
+                        if not annee:
+                            continue
+
+                        raw_val, had_percent = parse_numeric(row[idx])
+                        if raw_val is None:
+                            continue
+
+                        unite = ""
+                        val = raw_val
+                        if is_pourcentage or had_percent:
+                            unite = "%"
+                            if abs(val) > 1.5:
+                                val = val / 100.0
+                            val = round(val, 6)
+
+                        Donnees.objects.create(
+                            ligne=ligne_obj,
+                            colonne=str(annee),
+                            unite=unite,
+                            source=source,
+                            valeur=val,
+                            categorie_id=id_cat,
+                            tableau=tableau
+                        )
+
+                continue  # feuille traitée (nouveau format)
+
+            # ==============================
+            # ANCIEN FORMAT (titre "TABLEAU")
+            # ==============================
+            titre = ""
+            source = ""
+            data_start = None  # index de la ligne d'entête (juste après le titre)
+
+            def is_non_empty(row):
+                return any((str(c or "").strip() for c in row))
+
+            def first_non_empty_after(rows, i):
+                for j in range(i + 1, len(rows)):
+                    if is_non_empty(rows[j]):
+                        return j
+                return None
+
+            for idx, row in enumerate(lignes):
+                joined = " ".join([str(c) for c in row if c]).strip()
+                up = joined.upper()
+
+                # détection stricte du titre
+                if re.search(r'\bTABLEAU\b', up) or re.match(r'^\s*TAB(?:LEAU)?\s*[\.:]?\s*\d+', up):
+                    titre = joined
+                    data_start = first_non_empty_after(lignes, idx)
                     continue
 
-                if started and any(cell.lower().startswith("source") for cell in row_str if cell):
-                    source = ' '.join(row_str).replace("Source :", "").strip()
-                    break
+                # source
+                if re.search(r'\bSOURCE\b', up):
+                    src_text = re.sub(r'(?i)^source\s*:?', '', joined).strip()
+                    if src_text:
+                        source = src_text
 
-                if started:
-                    if not headers and any(cell != '' for cell in row_str):
-                        headers = row_str
-                        if headers[0] == '':
-                            headers[0] = ''
-                        etiquette_ligne_detectee = headers[0]
-                    elif any(cell != '' for cell in row_str):
-                        lignes.append(row_str)
+            if not titre or data_start is None or data_start >= len(lignes):
+                continue  # rien à importer sur cette feuille
 
-            if not titre:
-                titre = f"Titre non trouvé ({feuille})"
+            # Entête (années)
+            headers_old = lignes[data_start] if lignes[data_start] else []
+            etiquette_value = str(headers_old[0]).strip() if headers_old else ""
 
             tableau = Tableau.objects.create(
                 nom_feuille=feuille,
-                titre=titre,
+                titre=titre,                 # ex. "Tableau TS3 : ..."
                 theme_id=id_theme,
                 source=source,
-                etiquette_ligne=etiquette_ligne_detectee
+                etiquette_ligne=etiquette_value
             )
 
-            for row in lignes:
-                ligne_label = row[0] if row[0] else ""
-                for i, cell in enumerate(row[1:], start=1):
-                    cell_str = str(cell).strip()
+            # Lignes de données
+            data_rows = lignes[data_start + 1:]
+            is_pourcentage = "%" in titre
 
-                    if "%" in cell_str:
-                        unite = "%"
-                        cell_str = cell_str.replace("%", "")
-                    else:
-                        unite = ""
+            for row in data_rows:
+                if not row or len(row) < 2:
+                    continue
 
-                    cell_str = cell_str.replace('\u202f', '').replace(' ', '').replace(',', '.')
-                    try:
-                        val = float(cell_str)
-                    except:
+                indicateur_brut = (row[0] or "").strip()
+                if not indicateur_brut:
+                    continue
+
+                ligne_obj = LigneIndicateur.objects.create(
+                    tableau=tableau,
+                    label=indicateur_brut,
+                    code='',
+                    parent_code='',
+                    ordre=None
+                )
+
+                # Valeurs par colonnes (à partir de 1)
+                for cidx in range(1, len(headers_old)):
+                    if cidx >= len(row):
+                        continue
+                    annee = headers_old[cidx]
+                    if not annee:
                         continue
 
+                    raw_val, had_percent = parse_numeric(row[cidx])
+                    if raw_val is None:
+                        continue
+
+                    unite = ""
+                    val = raw_val
+                    if is_pourcentage or had_percent:
+                        unite = "%"
+                        if abs(val) > 1.5:
+                            val = val / 100.0
+                        val = round(val, 6)
+
                     Donnees.objects.create(
-                        ligne=ligne_label,
-                        colonne=headers[i] if i < len(headers) else f'Col{i}',
+                        ligne=ligne_obj,
+                        colonne=str(annee),
                         unite=unite,
                         source=source,
                         valeur=val,
@@ -168,59 +397,225 @@ class ImportExcelView(APIView):
                         tableau=tableau
                     )
 
-        return Response({'message': 'Importation réussie'}, status=status.HTTP_201_CREATED)
+        return Response({'message': 'Importation réussie'}, status=201)
+
+from collections import OrderedDict, defaultdict
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from .models import Donnees
 
 class TableauDetailStructureView(APIView):
     def get(self, request, tableau_id):
-        donnees = Donnees.objects.filter(tableau_id=tableau_id).order_by('id')
+        donnees = (
+            Donnees.objects
+            .filter(tableau_id=tableau_id)
+            .select_related("ligne", "tableau")
+            .order_by("id")
+        )
 
         if not donnees.exists():
             return Response({
                 "colonnes_groupées": {},
+                "colonnes_order": [],
                 "data": [],
-                "has_sous_indicateurs": False
+                "has_sous_indicateurs": False,
+                "meta": {"titre": "", "source": "", "etiquette_ligne": ""},
+                "format": None
             })
 
-        colonnes_principales = defaultdict(set)
-        structure = defaultdict(lambda: {
-            "sous_indicateurs": [],
-            "valeurs": defaultdict(dict)
-        })
+        tableau = donnees.first().tableau
+
+        def format_value(unite, valeur):
+            if valeur is None:
+                return ""
+            if unite == "%":
+                # Stocké en fraction (0..1.5) -> *100, sinon déjà pourcentage (ex: 57.7)
+                val = (valeur * 100) if abs(valeur) <= 1.5 else valeur
+                s = f"{val:.1f}".rstrip('0').rstrip('.')
+                return f"{s}%"
+            s = f"{valeur:.2f}".rstrip('0').rstrip('.')
+            return s
+
+        # Détection format (nouveau si présence code/ordre)
+        is_nouveau_format = any(
+            (getattr(d.ligne, "code", None) or getattr(d.ligne, "ordre", None) is not None)
+            for d in donnees
+        )
+
+        colonnes_principales = OrderedDict()
+
+        # =====================================================================
+        # NOUVEAU FORMAT (avec code/parent_code/ordre)
+        # =====================================================================
+        if is_nouveau_format:
+            nodes_by_code = OrderedDict()
+
+            # 1) Parcours des données -> colonnes groupées + noeuds
+            for d in donnees:
+                l = d.ligne
+                label = (l.label or "").strip()
+                col = (d.colonne or "").strip()
+
+                # Colonnes groupées
+                if "~" in col:
+                    col_principal, col_sous = map(str.strip, col.split("~", 1))
+                else:
+                    col_principal, col_sous = col, ""
+                if col_principal not in colonnes_principales:
+                    colonnes_principales[col_principal] = []
+                if col_sous and col_sous not in colonnes_principales[col_principal]:
+                    colonnes_principales[col_principal].append(col_sous)
+                elif not col_sous and "" not in colonnes_principales[col_principal]:
+                    colonnes_principales[col_principal].append("")
+
+                # Clés hiérarchie
+                code = (l.code or "").strip() or f"__row_{l.id}"
+                parent_code = (l.parent_code or "").strip()
+                ordre = l.ordre if l.ordre is not None else None
+
+                if code not in nodes_by_code:
+                    nodes_by_code[code] = {
+                        "code": code,
+                        "parent_code": parent_code,
+                        "indicateur": label,
+                        "ordre": ordre,
+                        "valeurs": defaultdict(dict),
+                        "children": [],
+                        "ligne_id": l.id,
+                    }
+
+                nodes_by_code[code]["valeurs"][col_principal][col_sous] = format_value(d.unite, d.valeur)
+
+            # 2) Construire l’arbre
+            roots = []
+            for code, node in nodes_by_code.items():
+                p = node.get("parent_code")
+                if p and p in nodes_by_code:
+                    nodes_by_code[p]["children"].append(node)
+                else:
+                    roots.append(node)
+
+            # 3) Aplatir avec tri et niveau
+            def has_any_value(n):
+                return any(v for g in n["valeurs"].values() for v in g.values())
+
+            def flatten(nodes, niveau=0):
+                out = []
+                nodes_sorted = sorted(
+                    nodes,
+                    key=lambda n: (
+                        n.get("ordre") is None,                # ceux sans ordre en dernier
+                        n.get("ordre", 0),
+                        n.get("indicateur", "")
+                    )
+                )
+                for n in nodes_sorted:
+                    out.append({
+                        "indicateur": n["indicateur"],
+                        "valeurs": dict(n["valeurs"]),
+                        "niveau": niveau,
+                        "ordre": n.get("ordre"),
+                        "code": n.get("code"),
+                        "parent_code": n.get("parent_code") or None,
+                        "ligne_id": n.get("ligne_id"),
+                        "is_section": (len(n["children"]) > 0 and not has_any_value(n)),
+                    })
+                    out.extend(flatten(n["children"], niveau + 1))
+                return out
+
+            data = flatten(roots)
+
+            # 4) Colonnes groupées + ordre à plat
+            colonnes_groupées = {
+                col: sous if any(sous) else [""]
+                for col, sous in colonnes_principales.items()
+            }
+            colonnes_order = []
+            for gp, sous in colonnes_principales.items():
+                if any(sous):
+                    for s in sous:
+                        colonnes_order.append({"principal": gp, "sous": s})
+                else:
+                    colonnes_order.append({"principal": gp, "sous": ""})
+
+            return Response({
+                "colonnes_groupées": colonnes_groupées,
+                "colonnes_order": colonnes_order,
+                "data": data,
+                "has_sous_indicateurs": False,  # <- nouveau format
+                "meta": {
+                    "titre": tableau.titre,
+                    "source": tableau.source or "",
+                    "etiquette_ligne": tableau.etiquette_ligne or ""
+                },
+                "format": "nouveau"
+            })
+
+        # =====================================================================
+        # ANCIEN FORMAT (séparateur ~ dans lignes/colonnes)
+        # =====================================================================
+        structure = OrderedDict()
 
         for d in donnees:
-            ligne = d.ligne.strip() if d.ligne else ""
-            colonne = d.colonne.strip() if d.colonne else ""
-            valeur_formatee = f"{d.valeur:.2f}".rstrip('0').rstrip('.') if d.valeur is not None else ""
-            valeur_finale = f"{valeur_formatee}{d.unite}" if d.unite else valeur_formatee
+            label = (d.ligne.label or "").strip()
+            col = (d.colonne or "").strip()
 
-            if "~" in colonne:
-                col_principal, col_sous = map(str.strip, colonne.split("~", 1))
+            # Colonnes groupées
+            if "~" in col:
+                col_principal, col_sous = map(str.strip, col.split("~", 1))
             else:
-                col_principal, col_sous = colonne, ""
+                col_principal, col_sous = col, ""
+            if col_principal not in colonnes_principales:
+                colonnes_principales[col_principal] = []
+            if col_sous and col_sous not in colonnes_principales[col_principal]:
+                colonnes_principales[col_principal].append(col_sous)
+            elif not col_sous and "" not in colonnes_principales[col_principal]:
+                colonnes_principales[col_principal].append("")
 
-            colonnes_principales[col_principal].add(col_sous)
+            v = format_value(d.unite, d.valeur)
 
-            if "~" in ligne:
-                principal, sous = map(str.strip, ligne.split("~", 1))
+            # Lignes groupées (~)
+            if "~" in label:
+                principal, sous = map(str.strip, label.split("~", 1))
+                if principal not in structure:
+                    structure[principal] = {
+                        "sous_indicateurs": [],
+                        "valeurs": defaultdict(dict)
+                    }
                 structure[principal]["sous_indicateurs"].append({
                     "nom": sous,
-                    "valeurs": {col_principal: {col_sous: valeur_finale}}
+                    "valeurs": {col_principal: {col_sous: v}}
                 })
             else:
-                structure[ligne]["valeurs"][col_principal][col_sous] = valeur_finale
+                if label not in structure:
+                    structure[label] = {
+                        "sous_indicateurs": [],
+                        "valeurs": defaultdict(dict)
+                    }
+                structure[label]["valeurs"][col_principal][col_sous] = v
 
+        # Colonnes groupées + ordre à plat
         colonnes_groupées = {
-            col: list(sous) if any(sous) else [""]
+            col: sous if any(sous) else [""]
             for col, sous in colonnes_principales.items()
         }
+        colonnes_order = []
+        for gp, sous in colonnes_principales.items():
+            if any(sous):
+                for s in sous:
+                    colonnes_order.append({"principal": gp, "sous": s})
+            else:
+                colonnes_order.append({"principal": gp, "sous": ""})
 
-
+        # Aplatir pour le front
         data = []
         for indicateur, contenu in structure.items():
             if contenu["sous_indicateurs"]:
-                regroupé = defaultdict(lambda: defaultdict(dict))
+                regroupé = OrderedDict()
                 for sous in contenu["sous_indicateurs"]:
                     nom = sous["nom"]
+                    if nom not in regroupé:
+                        regroupé[nom] = defaultdict(dict)
                     for c, sous_vals in sous["valeurs"].items():
                         for sc, val in sous_vals.items():
                             regroupé[nom][c][sc] = val
@@ -229,26 +624,40 @@ class TableauDetailStructureView(APIView):
                     "sous_indicateurs": [
                         {"nom": nom, "valeurs": regroupé[nom]}
                         for nom in regroupé
-                    ]
+                    ],
+                    "niveau": 0,
+                    "ordre": None,
+                    "code": None,
+                    "parent_code": None,
+                    "ligne_id": None,
+                    "is_section": False
                 })
             else:
                 data.append({
                     "indicateur": indicateur,
-                    "valeurs": dict(contenu["valeurs"])
+                    "valeurs": dict(contenu["valeurs"]),
+                    "niveau": 0,
+                    "ordre": None,
+                    "code": None,
+                    "parent_code": None,
+                    "ligne_id": None,
+                    "is_section": False
                 })
 
-        # Ajout ici : présence réelle de sous-indicateurs
-        has_sous_indicateurs = any(
-            row.get("sous_indicateurs") for row in structure.values()
-        )
+        has_sous_indicateurs = any(row.get("sous_indicateurs") for row in data)
 
         return Response({
             "colonnes_groupées": colonnes_groupées,
+            "colonnes_order": colonnes_order,
             "data": data,
-            "has_sous_indicateurs": has_sous_indicateurs
+            "has_sous_indicateurs": has_sous_indicateurs,  # True pour ancien format quand il y a des sous-indicateurs
+            "meta": {
+                "titre": tableau.titre,
+                "source": tableau.source or "",
+                "etiquette_ligne": tableau.etiquette_ligne or ""
+            },
+            "format": "ancien"
         })
-
-
 
 class TableauFiltresOptionsView(APIView):
     def get(self, request, tableau_id):
