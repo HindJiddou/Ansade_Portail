@@ -29,6 +29,7 @@ export default function Categories() {
   const [categories, setCategories] = useState<Categorie[]>([]);
   const [query, setQuery] = useState(""); // tu peux le garder si tu réactives une barre de recherche plus tard
   const navigate = useNavigate();
+  // TEST GIT: modification temporaire
 
   useEffect(() => {
     axios.get("/api/categories/")
@@ -54,9 +55,6 @@ export default function Categories() {
 
       {/* En-tête */}
       <header className="text-center mt-6 mb-10">
-        <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4">
-          Catégories statistiques
-        </h1>
         <p className="text-gray-600 text-lg leading-relaxed max-w-3xl mx-auto">
           Les statistiques officielles de l’
           <span className="font-semibold text-emerald-700">ANSADE</span> sont

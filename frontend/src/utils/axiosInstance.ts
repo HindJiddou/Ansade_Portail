@@ -1,52 +1,55 @@
-// src/utils/axiosInstance.ts
 import axios from "axios";
 
+const baseURL = "http://172.16.67.25:8000/api"; // adapte si besoin
+
 const axiosInstance = axios.create({
-  baseURL: "http://localhost:8000/api",
+  baseURL,
+  timeout: 0, // ⬅️ pas de limite de temps (utile pour gros imports)
   headers: {
     "Content-Type": "application/json",
   },
 });
 
+// ✅ Intercepteur : ajouter le token d’accès à chaque requête
 axiosInstance.interceptors.request.use(
-  async (config) => {
+  (config) => {
     const token = localStorage.getItem("access");
     if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+      config.headers["Authorization"] = `Bearer ${token}`;
     }
     return config;
   },
   (error) => Promise.reject(error)
 );
 
+// ✅ Intercepteur : gérer l’expiration du token automatiquement
 axiosInstance.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
-    const refreshToken = localStorage.getItem("refresh");
 
-    if (
-      error.response?.status === 401 &&
-      error.response.data.code === "token_not_valid" &&
-      refreshToken &&
-      !originalRequest._retry
-    ) {
+    // si le token a expiré et qu'on n'a pas déjà essayé de le rafraîchir
+    if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
+
       try {
-        const response = await axios.post("http://localhost:8000/api/token/refresh/", {
-          refresh: refreshToken,
-        });
+        const refreshToken = localStorage.getItem("refresh");
+        if (refreshToken) {
+          const res = await axios.post(`${baseURL}/token/refresh/`, {
+            refresh: refreshToken,
+          });
 
-        localStorage.setItem("access", response.data.access);
-        axios.defaults.headers.common["Authorization"] = `Bearer ${response.data.access}`;
-        originalRequest.headers["Authorization"] = `Bearer ${response.data.access}`;
+          // Sauvegarde du nouveau token
+          localStorage.setItem("access", res.data.access);
+          axiosInstance.defaults.headers.common["Authorization"] = `Bearer ${res.data.access}`;
 
-        return axios(originalRequest);
-      } catch (refreshError) {
-        console.error("Token refresh failed", refreshError);
+          // Relancer la requête originale avec le nouveau token
+          return axiosInstance(originalRequest);
+        }
+      } catch (err) {
+        console.error("Échec du rafraîchissement du token :", err);
         localStorage.clear();
         window.location.href = "/login";
-        return Promise.reject(refreshError);
       }
     }
 

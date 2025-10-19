@@ -86,6 +86,7 @@ class Donnees(models.Model):
     ligne = models.ForeignKey("LigneIndicateur", on_delete=models.SET_NULL, null=True, blank=True)  # ✅ null autorisé
     colonne = models.CharField(max_length=255)
     unite = models.CharField(max_length=50, blank=True)
+    statut = models.CharField(max_length=5, blank=True, null=True) 
     source = models.TextField(blank=True)
     valeur = models.FloatField()
     categorie = models.ForeignKey(Categorie, on_delete=models.CASCADE)

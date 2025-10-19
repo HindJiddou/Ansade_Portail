@@ -26,7 +26,7 @@ const Header: React.FC = () => {
     "after:bg-green-700 after:transition-all after:duration-300 hover:after:w-10";
   const activeBtn =
     "text-green-800 bg-green-600/10 after:w-10"; // trait visible et fond léger si actif
-
+  
   const isActive = (path: string) => {
     if (path === "/accueil") return location.pathname === "/accueil" || location.pathname === "/";
     return location.pathname.startsWith(path);

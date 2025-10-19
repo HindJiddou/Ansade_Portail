@@ -8,33 +8,36 @@ const LoginPage: React.FC = () => {
   const [message, setMessage] = useState("");
   const navigate = useNavigate();
 
-const handleLogin = async (e: React.FormEvent) => {
-  e.preventDefault();
-  try {
-    const response = await axios.post("http://localhost:8000/api/login/", {
-      email,
-      password,
-    });
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const response = await axios.post("http://127.0.0.1:8000/api/login/", {
+        email,
+        password,
+      });
 
-    const { access, user } = response.data;
+      // ✅ On récupère access + refresh + user
+      const { access, refresh, user } = response.data;
 
-    // 🧹 Nettoyer l'ancien utilisateur et token
-    localStorage.clear();
+      // 🧹 Nettoyer l'ancien utilisateur et token
+      localStorage.clear();
 
-    // 🔐 Stocker les nouvelles infos
-    localStorage.setItem("access", access); // ⬅️ recommandé d'utiliser 'access' (et pas 'token')
-    localStorage.setItem("user", JSON.stringify(user));
+      // 🔐 Stocker les nouvelles infos
+      localStorage.setItem("access", access);
+      localStorage.setItem("refresh", refresh);
+      localStorage.setItem("user", JSON.stringify(user));
 
-    // 🔁 Redirection selon le rôle
-    if (user.is_chef || user.is_superuser) {
-      navigate("/chef-departement");
-    } else {
-      navigate("/");
+      // 🔁 Redirection selon le rôle
+      if (user.is_chef || user.is_superuser) {
+        navigate("/chef-departement");
+      } else {
+        navigate("/");
+      }
+    } catch (error) {
+      console.error("Erreur de connexion :", error);
+      setMessage("Email ou mot de passe incorrect.");
     }
-  } catch (error) {
-    setMessage("Email ou mot de passe incorrect.");
-  }
-};
+  };
 
   return (
     <div className="fixed top-0 left-0 w-full h-full bg-green-800 flex items-center justify-center">
@@ -68,7 +71,7 @@ const handleLogin = async (e: React.FormEvent) => {
 
           <button
             type="submit"
-            className="w-full bg-green-700 text-white font-semibold py-2 rounded hover:bg-green-500"
+            className="w-full bg-green-700 text-white font-semibold py-2 rounded hover:bg-green-600"
           >
             SE CONNECTER
           </button>
@@ -78,7 +81,10 @@ const handleLogin = async (e: React.FormEvent) => {
           <a href="/" className="block hover:underline">
             OPEN DATA
           </a>
-          <a href="http://127.0.0.1:8000/admin/" className="block hover:underline">
+          <a
+            href="http://127.0.0.1:8000/admin/"
+            className="block hover:underline"
+          >
             ADMIN
           </a>
         </div>

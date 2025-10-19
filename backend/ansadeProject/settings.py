@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'ansade_app',
     'corsheaders',
+    'django_extensions',
 ]
 
 MIDDLEWARE = [
@@ -86,6 +87,9 @@ DATABASES = {
         'PASSWORD': 'admin',
         'HOST': 'localhost',
         'PORT': '5432',
+        'OPTIONS': {
+            'client_encoding': 'UTF8',
+        }
     }
 }
 

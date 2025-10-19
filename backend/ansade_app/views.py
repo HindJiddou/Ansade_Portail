@@ -149,6 +149,18 @@ class RechercheGlobaleAPIView(APIView):
             })
 
         return Response(results)
+        
+from datetime import datetime
+import re
+import openpyxl
+from datetime import datetime
+from openpyxl.utils.datetime import from_excel
+from rest_framework.views import APIView
+from rest_framework.parsers import MultiPartParser
+from rest_framework.response import Response
+from ansade_app.models import Tableau, LigneIndicateur, Donnees
+from ansade_app.permissions import IsChef
+
 
 class ImportExcelView(APIView):
     parser_classes = [MultiPartParser]
@@ -168,7 +180,7 @@ class ImportExcelView(APIView):
             return Response({'error': 'Veuillez fournir le fichier, theme_id et cat_id'}, status=400)
 
         try:
-            wb = openpyxl.load_workbook(fichier_excel, data_only=True)
+            wb = openpyxl.load_workbook(fichier_excel, data_only=True, read_only=True)
         except Exception as e:
             return Response({'error': f'Erreur de lecture du fichier : {str(e)}'}, status=400)
 
@@ -191,11 +203,36 @@ class ImportExcelView(APIView):
                 return float(cell), False
             return None, False
 
+        def format_excel_date(value):
+            """Convertit une valeur Excel en texte mois-année (ex: janv-12)."""
+            mois_fr = [
+                "janv", "févr", "mars", "avr", "mai", "juin",
+                "juil", "août", "sept", "oct", "nov", "déc"
+            ]
+            try:
+                # Si Excel a stocké la date comme nombre
+                if isinstance(value, (int, float)):
+                    date_val = from_excel(value)
+                    return f"{mois_fr[date_val.month - 1]}-{str(date_val.year)[2:]}"
+                # Si c'est un datetime
+                if isinstance(value, datetime):
+                    return f"{mois_fr[value.month - 1]}-{str(value.year)[2:]}"
+                # Si c’est une chaîne ISO comme "2012-01-01"
+                if isinstance(value, str):
+                    try:
+                        date_val = datetime.fromisoformat(value.split(" ")[0])
+                        return f"{mois_fr[date_val.month - 1]}-{str(date_val.year)[2:]}"
+                    except Exception:
+                        return value.strip()
+                return str(value)
+            except Exception:
+                return str(value)
+
+        # --------- lecture des feuilles ---------
         for feuille in wb.sheetnames:
             ws = wb[feuille]
-
             lignes = []
-            first_non_empty_row = None  # garde la 1ère ligne non vide pour tester le "nouveau format"
+            first_non_empty_row = None
 
             for row in ws.iter_rows(values_only=True):
                 row_str = [str(cell).strip() if cell is not None else '' for cell in row]
@@ -208,7 +245,6 @@ class ImportExcelView(APIView):
             if not lignes:
                 continue
 
-            # ===== Test "nouveau format" sur la 1ère ligne non vide
             normalized_first_row = [h.lower() for h in (first_non_empty_row or [])]
             is_new_format = all(col in normalized_first_row
                                 for col in ["titre_fr", "source_fr", "ordre", "code", "parent", "des_fr"])
@@ -220,18 +256,17 @@ class ImportExcelView(APIView):
                 try:
                     titre_fr_idx = normalized_first_row.index('titre_fr')
                     source_fr_idx = normalized_first_row.index('source_fr')
-                    ordre_idx    = normalized_first_row.index('ordre')
-                    code_idx     = normalized_first_row.index('code')
-                    parent_idx   = normalized_first_row.index('parent')
-                    des_fr_idx   = normalized_first_row.index('des_fr')
+                    ordre_idx = normalized_first_row.index('ordre')
+                    code_idx = normalized_first_row.index('code')
+                    parent_idx = normalized_first_row.index('parent')
+                    des_fr_idx = normalized_first_row.index('des_fr')
                 except ValueError as e:
                     return Response({'error': f"Colonnes manquantes : {str(e)}"}, status=400)
 
-                # Colonnes années = tout ce qui vient après des_fr
                 annee_indexes = [i for i in range(des_fr_idx + 1, len(first_non_empty_row))]
 
                 if len(lignes) < 2:
-                    continue  # pas de données
+                    continue
 
                 titre = lignes[1][titre_fr_idx]
                 source = lignes[1][source_fr_idx]
@@ -245,9 +280,10 @@ class ImportExcelView(APIView):
                     etiquette_ligne="Indicateur"
                 )
 
-                # Itérer sur les lignes de données (sauter l'entête)
                 for row in lignes[1:]:
-                    label = str(row[des_fr_idx]).strip() if len(row) > des_fr_idx else ''
+                    label_raw = row[des_fr_idx] if len(row) > des_fr_idx else ''
+                    label = format_excel_date(label_raw)  # ✅ on formate aussi les lignes
+
                     if not label:
                         continue
 
@@ -263,7 +299,7 @@ class ImportExcelView(APIView):
 
                     ligne_obj = LigneIndicateur.objects.create(
                         tableau=tableau,
-                        label=label,
+                        label=label,  # ✅ version formatée
                         code=code,
                         parent_code=parent_code,
                         ordre=ordre
@@ -272,7 +308,7 @@ class ImportExcelView(APIView):
                     for idx in annee_indexes:
                         if idx >= len(row):
                             continue
-                        annee = first_non_empty_row[idx]
+                        annee = format_excel_date(first_non_empty_row[idx])  # ✅ format colonnes
                         if not annee:
                             continue
 
@@ -298,14 +334,14 @@ class ImportExcelView(APIView):
                             tableau=tableau
                         )
 
-                continue  # feuille traitée (nouveau format)
+                continue  # feuille traitée
 
             # ==============================
-            # ANCIEN FORMAT (titre "TABLEAU")
+            # ANCIEN FORMAT
             # ==============================
             titre = ""
             source = ""
-            data_start = None  # index de la ligne d'entête (juste après le titre)
+            data_start = None
 
             def is_non_empty(row):
                 return any((str(c or "").strip() for c in row))
@@ -320,34 +356,30 @@ class ImportExcelView(APIView):
                 joined = " ".join([str(c) for c in row if c]).strip()
                 up = joined.upper()
 
-                # détection stricte du titre
                 if re.search(r'\bTABLEAU\b', up) or re.match(r'^\s*TAB(?:LEAU)?\s*[\.:]?\s*\d+', up):
                     titre = joined
                     data_start = first_non_empty_after(lignes, idx)
                     continue
 
-                # source
                 if re.search(r'\bSOURCE\b', up):
                     src_text = re.sub(r'(?i)^source\s*:?', '', joined).strip()
                     if src_text:
                         source = src_text
 
             if not titre or data_start is None or data_start >= len(lignes):
-                continue  # rien à importer sur cette feuille
+                continue
 
-            # Entête (années)
             headers_old = lignes[data_start] if lignes[data_start] else []
             etiquette_value = str(headers_old[0]).strip() if headers_old else ""
 
             tableau = Tableau.objects.create(
                 nom_feuille=feuille,
-                titre=titre,                 # ex. "Tableau TS3 : ..."
+                titre=titre,
                 theme_id=id_theme,
                 source=source,
                 etiquette_ligne=etiquette_value
             )
 
-            # Lignes de données
             data_rows = lignes[data_start + 1:]
             is_pourcentage = "%" in titre
 
@@ -355,23 +387,24 @@ class ImportExcelView(APIView):
                 if not row or len(row) < 2:
                     continue
 
-                indicateur_brut = (row[0] or "").strip()
+                indicateur_raw = (row[0] or "").strip()
+                indicateur_brut = format_excel_date(indicateur_raw)  # ✅ formate les lignes
+
                 if not indicateur_brut:
                     continue
 
                 ligne_obj = LigneIndicateur.objects.create(
                     tableau=tableau,
-                    label=indicateur_brut,
+                    label=indicateur_brut,  # ✅ version formatée
                     code='',
                     parent_code='',
                     ordre=None
                 )
 
-                # Valeurs par colonnes (à partir de 1)
                 for cidx in range(1, len(headers_old)):
                     if cidx >= len(row):
                         continue
-                    annee = headers_old[cidx]
+                    annee = format_excel_date(headers_old[cidx])  # ✅ colonnes
                     if not annee:
                         continue
 
@@ -398,6 +431,7 @@ class ImportExcelView(APIView):
                     )
 
         return Response({'message': 'Importation réussie'}, status=201)
+
 
 from collections import OrderedDict, defaultdict
 from rest_framework.views import APIView
@@ -658,7 +692,6 @@ class TableauDetailStructureView(APIView):
             },
             "format": "ancien"
         })
-
 class TableauFiltresOptionsView(APIView):
     def get(self, request, tableau_id):
         try:
@@ -666,26 +699,27 @@ class TableauFiltresOptionsView(APIView):
         except Tableau.DoesNotExist:
             return Response({"error": "Tableau non trouvé"}, status=status.HTTP_404_NOT_FOUND)
 
-        donnees = Donnees.objects.filter(tableau=tableau)
+        donnees = Donnees.objects.filter(tableau=tableau).select_related("ligne")
 
         lignes_set = set()
         colonnes_set = set()
 
         for d in donnees:
-            ligne = d.ligne.strip()
-            colonne = d.colonne.strip()
-
-            lignes_set.add(ligne)
-            colonnes_set.add(colonne)
+            ligne_label = d.ligne.label.strip() if d.ligne and d.ligne.label else ""
+            colonne = (d.colonne or "").strip()
+            if ligne_label:
+                lignes_set.add(ligne_label)
+            if colonne:
+                colonnes_set.add(colonne)
 
         # Traitement des lignes
-        lignes_groupées = defaultdict(list)  # {Indicateur: [Sous1, Sous2]}
+        lignes_groupées = defaultdict(list)
         for ligne in lignes_set:
             if "~" in ligne:
                 indicateur, sous = map(str.strip, ligne.split("~", 1))
                 lignes_groupées[indicateur].append(sous)
             else:
-                lignes_groupées[ligne]  # indicateur principal seul
+                lignes_groupées[ligne]
 
         lignes_finales = []
         for indicateur, sous_liste in lignes_groupées.items():
@@ -695,7 +729,7 @@ class TableauFiltresOptionsView(APIView):
             else:
                 lignes_finales.append(indicateur)
 
-        # Colonnes (similaire à lignes)
+        # Colonnes
         colonnes_groupées = defaultdict(list)
         for col in colonnes_set:
             if "~" in col:
@@ -750,6 +784,7 @@ class TableauFiltreView(APIView):
         return Response(serializer.data)
 
 
+
 class TableauFiltreStructureView(APIView):
     def post(self, request, tableau_id):
         lignes = request.data.get("lignes", [])
@@ -762,7 +797,7 @@ class TableauFiltreStructureView(APIView):
 
         filtres = Q(tableau=tableau)
 
-        # Filtrage des lignes
+        # ---- Filtrage des lignes ----
         if lignes:
             conditions = Q()
             for ligne in lignes:
@@ -770,16 +805,20 @@ class TableauFiltreStructureView(APIView):
                 indicateur = parts[0].strip()
                 sous = parts[1].strip() if len(parts) > 1 else None
                 if sous and sous.lower() != "ensemble":
-                    conditions |= Q(ligne=f"{indicateur}~{sous}")
+                    conditions |= Q(ligne__label=f"{indicateur}~{sous}")
                 else:
-                    conditions |= Q(ligne=indicateur)
+                    conditions |= Q(ligne__label=indicateur)
             filtres &= conditions
 
-        # Filtrage des colonnes
+        # ---- Filtrage des colonnes ----
         if colonnes:
             filtres &= Q(colonne__in=colonnes)
 
-        donnees = Donnees.objects.filter(filtres).order_by('ligne')
+        donnees = (
+            Donnees.objects.filter(filtres)
+            .select_related("ligne")
+            .order_by("ligne__ordre", "colonne")
+        )
 
         if not donnees.exists():
             return Response({
@@ -788,7 +827,7 @@ class TableauFiltreStructureView(APIView):
                 "has_sous_indicateurs": False
             })
 
-        # Même traitement que TableauDetailStructureView
+        # ---- Construction de la structure ----
         colonnes_principales = defaultdict(set)
         structure = defaultdict(lambda: {
             "sous_indicateurs": [],
@@ -796,9 +835,11 @@ class TableauFiltreStructureView(APIView):
         })
 
         for d in donnees:
-            ligne = d.ligne.strip() if d.ligne else ""
-            colonne = d.colonne.strip() if d.colonne else ""
-            valeur_formatee = f"{d.valeur:.2f}".rstrip('0').rstrip('.') if d.valeur is not None else ""
+            ligne_label = d.ligne.label.strip() if d.ligne and d.ligne.label else ""
+            colonne = (d.colonne or "").strip()
+            valeur_formatee = (
+                f"{d.valeur:.2f}".rstrip("0").rstrip(".") if d.valeur is not None else ""
+            )
             valeur_finale = f"{valeur_formatee}{d.unite}" if d.unite else valeur_formatee
 
             if "~" in colonne:
@@ -808,14 +849,14 @@ class TableauFiltreStructureView(APIView):
 
             colonnes_principales[col_principal].add(col_sous)
 
-            if "~" in ligne:
-                principal, sous = map(str.strip, ligne.split("~", 1))
+            if "~" in ligne_label:
+                principal, sous = map(str.strip, ligne_label.split("~", 1))
                 structure[principal]["sous_indicateurs"].append({
                     "nom": sous,
                     "valeurs": {col_principal: {col_sous: valeur_finale}}
                 })
             else:
-                structure[ligne]["valeurs"][col_principal][col_sous] = valeur_finale
+                structure[ligne_label]["valeurs"][col_principal][col_sous] = valeur_finale
 
         colonnes_groupées = {
             col: sorted(list(sous)) if any(sous) else [""]
@@ -946,3 +987,105 @@ class CarteParTableauAPIView(APIView):
             'annees': annees_triees,
             'valeurs': valeurs_par_defaut
         })
+    
+    from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
+from .models import Tableau, Donnees
+import pandas as pd
+from io import BytesIO
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.pdfgen import canvas
+
+
+class ExportTableauAPIView(APIView):
+    """
+    Exporte un tableau en XLSX ou PDF.
+    Exemple :
+    /api/export/tableaux/5/?format=xlsx
+    /api/export/tableaux/5/?format=pdf
+    """
+
+    def get(self, request, tableau_id):
+        fmt = request.GET.get("format", "xlsx").lower()
+
+        # ✅ Vérification du tableau
+        tableau = get_object_or_404(Tableau, pk=tableau_id)
+
+        # ✅ Correction : filtrer directement avec tableau_id
+        donnees = Donnees.objects.filter(tableau_id=tableau_id).values()
+
+        if not donnees.exists():
+            return Response(
+                {"error": "Aucune donnée disponible pour ce tableau."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        df = pd.DataFrame(list(donnees))
+        for col in ["id", "tableau_id", "categorie_id"]:
+            if col in df.columns:
+                df.drop(columns=[col], inplace=True)
+
+        # === EXPORT XLSX ===
+        if fmt == "xlsx":
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+                df.to_excel(writer, index=False, sheet_name="Données")
+            output.seek(0)
+            response = HttpResponse(
+                output.read(),
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            safe_name = "".join(x if x.isalnum() else "_" for x in tableau.titre)[:50]
+            response["Content-Disposition"] = f'attachment; filename="{safe_name}.xlsx"'
+            return response
+
+        # === EXPORT PDF ===
+        elif fmt == "pdf":
+            buffer = BytesIO()
+            p = canvas.Canvas(buffer, pagesize=landscape(A4))
+            p.setTitle(tableau.titre)
+            p.setFont("Helvetica-Bold", 14)
+            p.drawString(50, 550, f"Tableau : {tableau.titre}")
+            p.setFont("Helvetica", 10)
+            p.drawString(50, 530, f"Source : {tableau.source or 'ANSADE'}")
+
+            cols = list(df.columns)
+            x_start, y_start = 50, 500
+            line_height = 18
+
+            # En-têtes
+            p.setFont("Helvetica-Bold", 9)
+            for i, col in enumerate(cols):
+                p.drawString(x_start + i * 120, y_start, str(col)[:20])
+
+            # Lignes
+            p.setFont("Helvetica", 8)
+            for idx, row in enumerate(df.itertuples(index=False), start=1):
+                y = y_start - idx * line_height
+                if y < 40:
+                    p.showPage()
+                    p.setFont("Helvetica", 8)
+                    y = 550
+                for i, val in enumerate(row):
+                    p.drawString(x_start + i * 120, y, str(val)[:20])
+
+            p.showPage()
+            p.save()
+            pdf = buffer.getvalue()
+            buffer.close()
+
+            safe_name = "".join(x if x.isalnum() else "_" for x in tableau.titre)[:50]
+            response = HttpResponse(pdf, content_type="application/pdf")
+            response["Content-Disposition"] = f'attachment; filename="{safe_name}.pdf"'
+            return response
+
+        # === Format non supporté ===
+        else:
+            return Response(
+                {"error": "Format non supporté. Utilisez ?format=pdf ou ?format=xlsx"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+  

@@ -86,7 +86,6 @@ export default function Themes() {
       {/* En-tête : titre dynamique avec nom de la catégorie */}
       <header className="text-center mt-6 mb-6">
         <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-3">
-          Thèmes de la catégorie{" "}
           <span className="text-emerald-700">{categorie?.nom_cat || "..."}</span>
         </h1>
         <p className="text-gray-600 text-lg leading-relaxed max-w-2xl mx-auto">

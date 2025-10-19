@@ -5,19 +5,29 @@ import { motion } from "framer-motion";
 import BackButton from "./BackButton";
 import { FaSearch, FaRegEye, FaDownload, FaTable } from "react-icons/fa";
 
+/* ======================
+   Interfaces TypeScript
+====================== */
 interface Tableau {
   id: number;
   titre: string;
   theme: number;
 }
+
 interface ThemeMeta {
   id: number;
   nom_theme: string;
   categorie: number;
 }
 
+/* ======================
+   Animations
+====================== */
 const fadeIn = { hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0 } };
 
+/* ======================
+   Extraction du titre
+====================== */
 const extraireTitre = (titre: string) => {
   const debut = titre.indexOf(":");
   const fin = titre.indexOf(";");
@@ -26,17 +36,19 @@ const extraireTitre = (titre: string) => {
   return titre;
 };
 
+/* ======================
+   Composant principal
+====================== */
 export default function Tableaux() {
-  const { id } = useParams(); // id du thème
+  const { id } = useParams(); // ID du thème
   const navigate = useNavigate();
 
   const [tableaux, setTableaux] = useState<Tableau[]>([]);
   const [themeMeta, setThemeMeta] = useState<ThemeMeta | null>(null);
-
   const [query, setQuery] = useState("");
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
 
-  // Charger tableaux de ce thème
+  /* === Charger les tableaux du thème === */
   useEffect(() => {
     axios
       .get("/api/tableaux/")
@@ -47,23 +59,25 @@ export default function Tableaux() {
       .catch(console.error);
   }, [id]);
 
-  // Charger nom du thème pour le titre
+  /* === Charger les métadonnées du thème === */
   useEffect(() => {
     if (!id) return;
-    axios.get(`/api/themes/${id}/`).then((res) => setThemeMeta(res.data)).catch(console.error);
+    axios
+      .get(`/api/themes/${id}/`)
+      .then((res) => setThemeMeta(res.data))
+      .catch(console.error);
   }, [id]);
 
-  // Base triée par id (référence unique d'ordre)
+  /* === Tri et filtrage === */
   const tableauxById = useMemo(() => [...tableaux].sort((a, b) => a.id - b.id), [tableaux]);
 
-  // Liste affichée : filtre par texte mais conserve l'ordre par id
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return tableauxById;
     return tableauxById.filter((t) => extraireTitre(t.titre).toLowerCase().includes(q));
   }, [tableauxById, query]);
 
-  // Sélection datalist -> navigation si correspondance exacte
+  /* === Recherche automatique === */
   const handlePick = (val: string) => {
     setQuery(val);
     const match = tableauxById.find(
@@ -72,23 +86,28 @@ export default function Tableaux() {
     if (match) navigate(`/tableaux/${match.id}`);
   };
 
-  // Téléchargement: adapte l’URL selon ton API
+  /* === Télécharger PDF ou Excel === */
   const handleDownload = (tbl: Tableau, fmt: "pdf" | "xlsx") => {
-    const url = `/api/tableaux/${tbl.id}/export?format=${fmt}`;
+    const url = `/api/export/tableaux/${tbl.id}/?format=${fmt}`;
+
+    console.log("➡️ Téléchargement:", url);
     window.open(url, "_blank");
     setOpenMenuId(null);
   };
 
+  /* ======================
+     Rendu du composant
+  ====================== */
   return (
     <div className="max-w-7xl mx-auto px-6 sm:px-8">
+      {/* === Bouton retour === */}
       <div className="pt-6">
         <BackButton />
       </div>
 
-      {/* En-tête sobre, titre dynamique */}
+      {/* === En-tête === */}
       <header className="text-center mt-6 mb-6">
         <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-3">
-          Tableaux du thème{" "}
           <span className="text-emerald-700">{themeMeta?.nom_theme || "..."}</span>
         </h1>
         <p className="text-gray-600 text-lg leading-relaxed max-w-2xl mx-auto">
@@ -96,7 +115,7 @@ export default function Tableaux() {
         </p>
       </header>
 
-      {/* Barre de recherche compacte à droite (input + datalist trié par id) */}
+      {/* === Barre de recherche === */}
       <div className="flex justify-end mb-4">
         <label className="relative w-full sm:w-auto">
           <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -117,7 +136,7 @@ export default function Tableaux() {
         </label>
       </div>
 
-      {/* Grille 2 par ligne — cartes sobres, actions à droite (ordre par id) */}
+      {/* === Liste des tableaux === */}
       <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-8">
         {filtered.map((t) => {
           const titreCourt = extraireTitre(t.titre);
@@ -130,23 +149,23 @@ export default function Tableaux() {
               variants={fadeIn}
               whileHover={{ y: -2 }}
               onMouseLeave={() => setOpenMenuId((cur) => (cur === t.id ? null : cur))}
-              className={[
-                "w-full rounded-xl",
-                "bg-white border border-slate-200 hover:border-emerald-300",
-                "shadow-sm hover:shadow-lg transition",
-                "p-5 flex items-start gap-4",
-              ].join(" ")}
+              className="w-full rounded-xl bg-white border border-slate-200 hover:border-emerald-300
+                         shadow-sm hover:shadow-lg transition p-5 flex items-start gap-4"
             >
-              {/* Icône */}
+              {/* Icône principale */}
               <div className="shrink-0 inline-flex items-center justify-center w-12 h-12 rounded-lg bg-emerald-50 text-emerald-700">
                 <FaTable className="text-xl" />
               </div>
 
-              {/* Contenu */}
+              {/* Titre et description */}
               <div className="flex-1 min-w-0">
-                <h2 className="text-lg font-semibold text-slate-900 leading-snug truncate">
+                <h2
+                  className="text-lg font-semibold text-slate-900 leading-snug truncate"
+                  title={titreCourt}  // ✅ tooltip natif
+                >
                   {titreCourt}
                 </h2>
+
                 <p className="mt-1 text-sm text-slate-600 line-clamp-2">
                   Tableau normalisé | Sources et métadonnées disponibles sur la page détail.
                 </p>
@@ -155,27 +174,27 @@ export default function Tableaux() {
 
               {/* Actions */}
               <div className="relative flex items-center gap-2">
-                {/* Visualiser */}
+                {/* 🔍 Voir le détail */}
                 <button
                   onClick={() => navigate(`/tableaux/${t.id}`)}
                   className="inline-flex items-center justify-center w-9 h-9 rounded-md border border-slate-200 bg-white
                              hover:bg-slate-50 text-slate-700 hover:text-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-                  title="Visualiser"
+                  title="Visualiser le tableau"
                 >
                   <FaRegEye className="text-base" />
                 </button>
 
-                {/* Télécharger (menu) */}
-                <button
+                {/* ⬇️ Télécharger */}
+                {/* <button
                   onClick={() => setOpenMenuId((cur) => (cur === t.id ? null : t.id))}
                   className="inline-flex items-center justify-center w-9 h-9 rounded-md border border-slate-200 bg-white
                              hover:bg-slate-50 text-slate-700 hover:text-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-400"
                   title="Télécharger"
                 >
                   <FaDownload className="text-base" />
-                </button>
+                </button> */}
 
-                {/* Menu déroulant format */}
+                {/* Menu de téléchargement */}
                 {openMenuId === t.id && (
                   <div
                     className="absolute right-0 top-10 z-20 w-36 rounded-md border border-slate-200 bg-white shadow-lg p-1"

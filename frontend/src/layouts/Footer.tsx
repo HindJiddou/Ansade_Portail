@@ -4,6 +4,8 @@ const Footer = () => (
           © {new Date().getFullYear()} — Tous droits réservés | Agence Nationale de la Statistique et de l’Analyse Démographique et Économique
         </div>
       </section>
+   
+
 );
 
 export default Footer;
