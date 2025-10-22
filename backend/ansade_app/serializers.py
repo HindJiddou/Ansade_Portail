@@ -67,4 +67,4 @@ class DonneesSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Donnees
-        fields = ['id', 'valeur', 'colonne', 'unite', 'source', 'ligne','statut']
+        fields = ['id', 'valeur', 'colonne', 'unite', 'source', 'ligne','statut','note_colonne']

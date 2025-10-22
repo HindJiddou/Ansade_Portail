@@ -53,6 +53,8 @@ class DonneesAdmin(admin.ModelAdmin):
         'get_ligne_label',
         'colonne',
         'unite',
+        'statut',
+        'note_colonne',
         'source',
         'valeur',
         'categorie',

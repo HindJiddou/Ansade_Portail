@@ -7,11 +7,10 @@ from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser
 from rest_framework import status, generics
 import re
-from collections import defaultdict
+from collections import defaultdict,OrderedDict
 from django.shortcuts import get_object_or_404
 import pandas as pd
 import math
-import openpyxl
 from django.db.models import Q
 from django.db.models import F
 from rest_framework.permissions import IsAuthenticated,IsAdminUser,AllowAny
@@ -23,6 +22,10 @@ from rest_framework.authtoken.models import Token
 from .serializers import UserSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
+from urllib.parse import unquote
+from datetime import datetime
+from openpyxl.utils.datetime import from_excel
+
 
 
 class CustomLoginView(APIView):
@@ -49,10 +52,7 @@ class CustomLoginView(APIView):
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 
-# views.py
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+
 
 class UserInfoAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -106,7 +106,7 @@ class ListeSourcesAPIView(APIView):
         sources = Tableau.objects.exclude(source="").values_list('source', flat=True).distinct()
         return Response(sorted(sources))
 
-from urllib.parse import unquote
+
 
 class TableauxParSourceAPIView(APIView):
     def get(self, request, source):
@@ -149,17 +149,6 @@ class RechercheGlobaleAPIView(APIView):
             })
 
         return Response(results)
-        
-from datetime import datetime
-import re
-import openpyxl
-from datetime import datetime
-from openpyxl.utils.datetime import from_excel
-from rest_framework.views import APIView
-from rest_framework.parsers import MultiPartParser
-from rest_framework.response import Response
-from ansade_app.models import Tableau, LigneIndicateur, Donnees
-from ansade_app.permissions import IsChef
 
 
 class ImportExcelView(APIView):
@@ -263,7 +252,15 @@ class ImportExcelView(APIView):
                 except ValueError as e:
                     return Response({'error': f"Colonnes manquantes : {str(e)}"}, status=400)
 
-                annee_indexes = [i for i in range(des_fr_idx + 1, len(first_non_empty_row))]
+
+                # ✅ Inclure toutes les colonnes sauf 'Agreg'
+                annee_indexes = []
+                for i in range(des_fr_idx + 1, len(first_non_empty_row)):
+                    header = str(first_non_empty_row[i]).strip().lower()
+                    if header in ["agreg", "agrég", "agrégée"]:
+                        continue  # ⛔ ignorer uniquement la colonne Agreg
+                    annee_indexes.append(i)
+
 
                 if len(lignes) < 2:
                     continue
@@ -279,6 +276,17 @@ class ImportExcelView(APIView):
                     source=source,
                     etiquette_ligne="Indicateur"
                 )
+                # ✅ Collecte des notes de bas de page (ex: "* Données RGE 2024")
+                notes_etoiles = {}
+                for row in lignes:
+                    if not row:
+                        continue
+                    first_cell = str(row[0]).strip() if row[0] is not None else ""
+                    if first_cell.startswith("*"):
+                        # exemple: "* Données RGE 2024"
+                        note_text = first_cell.lstrip("*").strip()
+                        notes_etoiles["*"] = note_text  # on stocke la note brute
+
 
                 for row in lignes[1:]:
                     label_raw = row[des_fr_idx] if len(row) > des_fr_idx else ''
@@ -314,7 +322,25 @@ class ImportExcelView(APIView):
 
                         raw_val, had_percent = parse_numeric(row[idx])
                         if raw_val is None:
+                            # ✅ Vérifie que l'index existe avant d'y accéder
+                            texte_original = ''
+                            if idx < len(row) and row[idx] is not None:
+                                texte_original = str(row[idx]).strip()
+
+                            if texte_original:  # s'il y a "N/D" ou "NS" etc.
+                                Donnees.objects.create(
+                                    ligne=ligne_obj,
+                                    colonne=str(annee),
+                                    unite="",
+                                    source=source,
+                                    valeur=None,
+                                    statut=texte_original,
+                                    categorie_id=id_cat,
+                                    tableau=tableau
+                                )
                             continue
+
+
 
                         unite = ""
                         val = raw_val
@@ -323,6 +349,10 @@ class ImportExcelView(APIView):
                             if abs(val) > 1.5:
                                 val = val / 100.0
                             val = round(val, 6)
+                        # ✅ Nouveau bloc à ajouter avant Donnees.objects.create
+                        note = None
+                        if "*" in str(annee):
+                            note = notes_etoiles.get("*", "")
 
                         Donnees.objects.create(
                             ligne=ligne_obj,
@@ -331,7 +361,8 @@ class ImportExcelView(APIView):
                             source=source,
                             valeur=val,
                             categorie_id=id_cat,
-                            tableau=tableau
+                            tableau=tableau,
+                            note_colonne=note 
                         )
 
                 continue  # feuille traitée
@@ -408,9 +439,27 @@ class ImportExcelView(APIView):
                     if not annee:
                         continue
 
-                    raw_val, had_percent = parse_numeric(row[cidx])
+                    raw_val, had_percent = parse_numeric(row[cidx])  
                     if raw_val is None:
+                        # ✅ Vérifie que l'index existe avant d'y accéder
+                        texte_original = ''
+                        if cidx < len(row) and row[cidx] is not None:
+                            texte_original = str(row[cidx]).strip()
+
+                        if texte_original:  # s'il y a "N/D" ou "NS" etc.
+                            Donnees.objects.create(
+                                ligne=ligne_obj,
+                                colonne=str(annee),
+                                unite="",
+                                source=source,
+                                valeur=None,
+                                statut=texte_original,
+                                categorie_id=id_cat,
+                                tableau=tableau
+                            )
                         continue
+
+
 
                     unite = ""
                     val = raw_val
@@ -427,16 +476,13 @@ class ImportExcelView(APIView):
                         source=source,
                         valeur=val,
                         categorie_id=id_cat,
-                        tableau=tableau
+                        tableau=tableau,
+                       
                     )
 
         return Response({'message': 'Importation réussie'}, status=201)
 
 
-from collections import OrderedDict, defaultdict
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from .models import Donnees
 
 class TableauDetailStructureView(APIView):
     def get(self, request, tableau_id):
@@ -454,21 +500,46 @@ class TableauDetailStructureView(APIView):
                 "data": [],
                 "has_sous_indicateurs": False,
                 "meta": {"titre": "", "source": "", "etiquette_ligne": ""},
-                "format": None
+                "format": None,
+                "statuts": [],
             })
 
         tableau = donnees.first().tableau
+         # ✅ Détection des statuts textuels spéciaux
+        statuts_present = (
+            Donnees.objects
+            .filter(tableau_id=tableau_id)
+            .exclude(statut__isnull=True)
+            .values_list('statut', flat=True)
+        )
 
-        def format_value(unite, valeur):
-            if valeur is None:
-                return ""
+        statuts_uniques = set([s.strip().upper() for s in statuts_present if s.strip()])
+
+
+        def format_value(d):
+            """Formate une donnée complète (valeur, unité, statut, note)."""
+            if d.valeur is None and not d.statut:
+                return ""  # cellule vide
+            if d.statut:
+                return d.statut  # ex: "N/D", "NS"
+
+            titre_lower = (d.tableau.titre or "").lower()
+            titre_contient_pourcentage = ("%" in titre_lower) or ("pourcentage" in titre_lower)
+
+            unite = d.unite or ""
+            val = d.valeur
+
             if unite == "%":
-                # Stocké en fraction (0..1.5) -> *100, sinon déjà pourcentage (ex: 57.7)
-                val = (valeur * 100) if abs(valeur) <= 1.5 else valeur
+                val = (val * 100) if abs(val) <= 1.5 else val
                 s = f"{val:.1f}".rstrip('0').rstrip('.')
-                return f"{s}%"
-            s = f"{valeur:.2f}".rstrip('0').rstrip('.')
-            return s
+                valeur_str = s if titre_contient_pourcentage else f"{s}%"
+            else:
+                valeur_str = f"{val:.2f}".rstrip('0').rstrip('.')
+
+            # 👉 ne pas ajouter d'étoile ici, juste retourner la valeur
+            return valeur_str
+
+
 
         # Détection format (nouveau si présence code/ordre)
         is_nouveau_format = any(
@@ -518,7 +589,8 @@ class TableauDetailStructureView(APIView):
                         "ligne_id": l.id,
                     }
 
-                nodes_by_code[code]["valeurs"][col_principal][col_sous] = format_value(d.unite, d.valeur)
+                nodes_by_code[code]["valeurs"][col_principal][col_sous] = format_value(d)
+
 
             # 2) Construire l’arbre
             roots = []
@@ -572,17 +644,31 @@ class TableauDetailStructureView(APIView):
                 else:
                     colonnes_order.append({"principal": gp, "sous": ""})
 
+            # ✅ Récupération des notes liées aux colonnes (ex: * Données RGE 2024)
+            notes = (
+                Donnees.objects
+                .filter(tableau_id=tableau_id)
+                .exclude(note_colonne__isnull=True)
+                .exclude(note_colonne__exact="")
+                .values_list("note_colonne", flat=True)
+                .distinct()
+            )
+            notes_text = [f"{n}" for n in notes]
+
             return Response({
                 "colonnes_groupées": colonnes_groupées,
                 "colonnes_order": colonnes_order,
                 "data": data,
-                "has_sous_indicateurs": False,  # <- nouveau format
+                "has_sous_indicateurs": False,
                 "meta": {
                     "titre": tableau.titre,
                     "source": tableau.source or "",
                     "etiquette_ligne": tableau.etiquette_ligne or ""
                 },
-                "format": "nouveau"
+                "format": "nouveau",
+                "notes": notes_text,  
+                "statuts": list(statuts_uniques)
+
             })
 
         # =====================================================================
@@ -606,7 +692,8 @@ class TableauDetailStructureView(APIView):
             elif not col_sous and "" not in colonnes_principales[col_principal]:
                 colonnes_principales[col_principal].append("")
 
-            v = format_value(d.unite, d.valeur)
+            v = format_value(d)
+
 
             # Lignes groupées (~)
             if "~" in label:
@@ -680,18 +767,36 @@ class TableauDetailStructureView(APIView):
 
         has_sous_indicateurs = any(row.get("sous_indicateurs") for row in data)
 
+        # ✅ Récupération des notes si présentes
+        notes = (
+            Donnees.objects
+            .filter(tableau_id=tableau_id)
+            .exclude(note_colonne__isnull=True)
+            .exclude(note_colonne__exact="")
+            .values_list("note_colonne", flat=True)
+            .distinct()
+        )
+        notes_text = [f"{n}" for n in notes]
+       
+
         return Response({
             "colonnes_groupées": colonnes_groupées,
             "colonnes_order": colonnes_order,
             "data": data,
-            "has_sous_indicateurs": has_sous_indicateurs,  # True pour ancien format quand il y a des sous-indicateurs
+            "has_sous_indicateurs": has_sous_indicateurs,
             "meta": {
                 "titre": tableau.titre,
                 "source": tableau.source or "",
                 "etiquette_ligne": tableau.etiquette_ligne or ""
             },
-            "format": "ancien"
+            "format": "ancien",
+            "notes": notes_text,  
+            "statuts": list(statuts_uniques)
+
+
         })
+
+
 class TableauFiltresOptionsView(APIView):
     def get(self, request, tableau_id):
         try:

@@ -33,6 +33,7 @@ type Payload = {
   has_sous_indicateurs: boolean;
   meta?: { titre: string; source: string; etiquette_ligne: string };
   format?: "ancien" | "nouveau";
+  notes?: string[];
 };
 
 type Meta = { titre: string; source: string; etiquette_ligne: string };
@@ -46,14 +47,15 @@ const LEFT2_W = "clamp(140px, 18vw, 220px)";
 const LEFT1_MIN = 180;
 const LEFT2_MIN = 140;
 const DATA_MIN = 96;
+const ANNEES_RECENSEMENT = ["1977", "1988", "2000", "2013", "2023"];
 
 /* ---------- Base styles ---------- */
 const thBase =
   "sticky top-0 z-30 text-[13.5px] md:text-[14px] font-semibold text-slate-800 bg-emerald-50 border border-emerald-200 px-3 py-2 backdrop-blur";
 const tdBase =
   "px-3 py-2 border border-slate-200 text-[13.5px] align-middle";
-const tdRight = `${tdBase} text-center`;
-const tdLeft = `${tdBase} text-left`;
+const tdRight = `${tdBase} text-center `;
+const tdLeft = `${tdBase} text-left `;
 const zebra = "odd:bg-white even:bg-slate-50/60";
 
 /* ---------- Helpers ---------- */
@@ -260,6 +262,7 @@ export default function TableauDetail() {
   const { id } = useParams();
   const tableId = `tableau-${id}`;
   const [payload, setPayload] = useState<Payload | null>(null);
+  const [visibleStatuts, setVisibleStatuts] = useState<string[]>([]);
   const [meta, setMeta] = useState<Meta | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -286,6 +289,8 @@ export default function TableauDetail() {
           source: m.source ?? "",
           etiquette_ligne: m.etiquette_ligne ?? "Indicateur",
         });
+        const visibles = detectVisibleStatuts(data.data || [], data.statuts || []);
+        setVisibleStatuts(visibles);
       } finally {
         if (alive) setLoading(false);
       }
@@ -390,6 +395,42 @@ export default function TableauDetail() {
       </div>
     );
   }
+  // ✅ Détection des statuts réellement présents dans le tableau
+function detectVisibleStatuts(data: any[], statuts: string[]) {
+  const visibles = new Set<string>();
+
+  const checkValeurs = (valeurs: Record<string, Record<string, string>>) => {
+    for (const col of Object.values(valeurs || {})) {
+      for (const val of Object.values(col)) {
+        if (statuts.includes(val?.toUpperCase?.())) visibles.add(val.toUpperCase());
+      }
+    }
+  };
+
+  data.forEach((row) => {
+    checkValeurs(row.valeurs);
+    if (row.sous_indicateurs) {
+      row.sous_indicateurs.forEach((sous: any) => checkValeurs(sous.valeurs));
+    }
+  });
+
+  return Array.from(visibles);
+}
+
+function isProjectionColumn(label: string, source?: string): boolean {
+  const year = label?.trim?.() || "";
+  const safeSource = source?.toLowerCase() || "";
+
+  // ✅ Seulement si la source contient "projection"
+  const isProjectionSource = safeSource.includes("projection");
+
+  return (
+    isProjectionSource &&
+    /^\d{4}$/.test(year) &&
+    !ANNEES_RECENSEMENT.includes(year)
+  );
+}
+
 
   return (
     <div className="p-4 sm:p-6">
@@ -563,9 +604,19 @@ export default function TableauDetail() {
                           <td className={`${tdLeft} sticky z-10 bg-white`} style={{ left: left1Wpx }} />
                         )}
                         {order.map((it, i) => (
-                          <td key={`old-alone-${idx}-${i}`} className={tdRight}>
+                          <td
+                            key={`oldcell-${i}-${i}`}
+                            className={tdRight}
+                            style={{
+                              backgroundColor: isProjectionColumn(it.principal, meta.source)
+                                ? "rgba(16, 185, 129, 0.08)"
+                                : "transparent",
+                            }}
+
+                          >
                             {formatCell(getCell(row.valeurs, it))}
                           </td>
+
                         ))}
                       </tr>
                     );
@@ -586,10 +637,19 @@ export default function TableauDetail() {
                             {s.nom}
                           </td>
                           {order.map((it, i) => (
-                            <td key={`old-subcell-${idx}-${k}-${i}`} className={tdRight}>
+                            <td
+                              key={`old-subcell-${idx}-${k}-${i}`}
+                              className={tdRight}
+                              style={{
+                                backgroundColor: isProjectionColumn(it.principal, meta.source)
+                                  ? "rgba(16, 185, 129, 0.08)"
+                                  : "transparent",
+                              }}
+                            >
                               {formatCell(getCell(s.valeurs, it))}
                             </td>
                           ))}
+
                         </tr>
                       ))}
                     </Fragment>
@@ -614,10 +674,19 @@ export default function TableauDetail() {
                         </span>
                       </td>
                       {order.map((it, j) => (
-                        <td key={`newcell-${i}-${j}`} className={tdRight}>
+                        <td
+                          key={`newcell-${i}-${j}`}
+                          className={tdRight}
+                          style={{
+                            backgroundColor: isProjectionColumn(it.principal, meta.source)
+                              ? "rgba(16, 185, 129, 0.08)"
+                              : "transparent",
+                          }}
+                        >
                           {formatCell(getCell(row.valeurs, it))}
                         </td>
                       ))}
+
                     </tr>
                   );
                 })}
@@ -635,6 +704,43 @@ export default function TableauDetail() {
           </p>
         </div>
       )}
+      {payload?.notes && payload.notes.length > 0 && (
+        <div className="mt-1 text-sm text-slate-600 italic">
+          {payload.notes.map((n, i) => (
+            <p key={i}>
+              <span className="text-black mr-1">*</span>
+              {n}
+            </p>
+          ))}
+        </div>
+      )}
+      {visibleStatuts.length > 0 && (
+        <div className="mt-2 text-sm text-slate-700 italic">
+          {visibleStatuts.includes("N/D") && (
+            <p><span className="font-semibold">N/D</span> : Non disponible</p>
+          )}
+          {visibleStatuts.includes("NS") && (
+            <p><span className="font-semibold">NS</span> : Non spécifié</p>
+          )}
+          {visibleStatuts.includes("NA") && (
+            <p><span className="font-semibold">NA</span> : Non applicable</p>
+          )}
+       </div>
+      )}
+      {/* 🟢 Légende pour projections (toujours visible s'il y a au moins une colonne colorée) */}
+      {meta.source?.toLowerCase().includes("projection") && order.some((it) => isProjectionColumn(it.principal, meta.source)) && (
+
+        <div className="mt-2 text-sm text-slate-700 italic">
+          <p className="mt-1 text-slate-600">
+            <span className="inline-block w-3 h-3 mr-2 align-middle rounded-sm bg-emerald-100 border border-emerald-200"></span>
+            Les colonnes colorées représentent les <span className="font-medium">projections</span>.
+          </p>
+        </div>
+      )}
+
+
+
+
 
       {/* Modal filtrage */}
       {showFilter && (
