@@ -122,7 +122,7 @@ const Accueil: React.FC = () => {
             {
               icon: <FaSyncAlt />,
               title: "Mise à jour continue",
-              text: "Les tableaux et séries sont régulièrement actualisés par les départements de l’ANSADE pour garantir leur pertinence.",
+              text: "Les données sont régulièrement actualisés par les départements de l’ANSADE pour garantir leur pertinence.",
             },
             {
               icon: <FaGlobeAfrica />,
@@ -168,7 +168,7 @@ const Accueil: React.FC = () => {
             {
               icon: <FaChartBar />,
               title: "Catégories",
-              desc: "Les grands domaines statistiques nationaux : démographie, économie, éducation, santé, environnement, etc.",
+              desc: "Les grands domaines statistiques nationaux : Statistiques Démographiques et sociales, Statistiques Economiques,etc.",
             },
             {
               icon: <FaChartLine />,
@@ -178,7 +178,7 @@ const Accueil: React.FC = () => {
             {
               icon: <FaDatabase />,
               title: "Tableaux",
-              desc: "Les tableaux affichent les indicateurs clés, avec des options de filtrage et d’exportation (Excel, PDF).",
+              desc: "Les tableaux affichent les données de chaque thème, avec des options de filtrage et d’exportation (Excel, PDF).",
             },
           ].map((x, i) => (
             <motion.div
@@ -244,7 +244,7 @@ const Accueil: React.FC = () => {
             {
               icon: <FaChartLine />,
               title: "Consulter les statistiques",
-              desc: "Parcourez les tableaux interactifs dans l’onglet « Statistiques » pour visualiser, filtrer et exporter les données.",
+              desc: "Parcourez les categories dans l’onglet « Statistiques » pour visualiser, filtrer et exporter les données.",
             },
             {
               icon: <FaSearch />,
@@ -253,7 +253,7 @@ const Accueil: React.FC = () => {
             },
             {
               icon: <FaDatabase />,
-              title: "Consulter les ressources",
+              title: "Consulter les sources",
               desc: "Accédez aux sources et métadonnées officielles pour mieux comprendre la provenance et la fiabilité des données.",
             },
           ].map((x, i) => (

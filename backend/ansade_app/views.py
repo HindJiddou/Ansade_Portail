@@ -256,10 +256,11 @@ class ImportExcelView(APIView):
                 # ✅ Inclure toutes les colonnes sauf 'Agreg'
                 annee_indexes = []
                 for i in range(des_fr_idx + 1, len(first_non_empty_row)):
-                    header = str(first_non_empty_row[i]).strip().lower()
-                    if header in ["agreg", "agrég", "agrégée"]:
-                        continue  # ⛔ ignorer uniquement la colonne Agreg
+                    header = str(first_non_empty_row[i]).strip()
+                    if header == "" or header.lower() in ["agreg", "agrég", "agrégée"]:
+                        continue  # ignorer les colonnes sans nom
                     annee_indexes.append(i)
+
 
 
                 if len(lignes) < 2:
@@ -290,10 +291,12 @@ class ImportExcelView(APIView):
 
                 for row in lignes[1:]:
                     label_raw = row[des_fr_idx] if len(row) > des_fr_idx else ''
-                    label = format_excel_date(label_raw)  # ✅ on formate aussi les lignes
+                    label = format_excel_date(label_raw).strip()
 
+                    # ⚠️ Si le label est vide (aucun indicateur), on saute la ligne
                     if not label:
                         continue
+
 
                     code = str(row[code_idx]).strip() if len(row) > code_idx and row[code_idx] else ''
                     parent_code = str(row[parent_idx]).strip() if len(row) > parent_idx and row[parent_idx] else ''
@@ -307,52 +310,65 @@ class ImportExcelView(APIView):
 
                     ligne_obj = LigneIndicateur.objects.create(
                         tableau=tableau,
-                        label=label,  # ✅ version formatée
+                        label=label,
                         code=code,
                         parent_code=parent_code,
                         ordre=ordre
                     )
 
+                    # === Vérifie si la ligne est entièrement vide
+                    ligne_vide = True
+
                     for idx in annee_indexes:
-                        if idx >= len(row):
-                            continue
-                        annee = format_excel_date(first_non_empty_row[idx])  # ✅ format colonnes
-                        if not annee:
-                            continue
+                        annee = format_excel_date(first_non_empty_row[idx])
+                        raw_val, had_percent = (None, False)
 
-                        raw_val, had_percent = parse_numeric(row[idx])
-                        if raw_val is None:
-                            # ✅ Vérifie que l'index existe avant d'y accéder
-                            texte_original = ''
-                            if idx < len(row) and row[idx] is not None:
-                                texte_original = str(row[idx]).strip()
+                        # Si la colonne existe pour cette ligne
+                        if idx < len(row):
+                            raw_val, had_percent = parse_numeric(row[idx])
 
-                            if texte_original:  # s'il y a "N/D" ou "NS" etc.
-                                Donnees.objects.create(
-                                    ligne=ligne_obj,
-                                    colonne=str(annee),
-                                    unite="",
-                                    source=source,
-                                    valeur=None,
-                                    statut=texte_original,
-                                    categorie_id=id_cat,
-                                    tableau=tableau
-                                )
-                            continue
-
-
-
-                        unite = ""
-                        val = raw_val
-                        if is_pourcentage or had_percent:
-                            unite = "%"
-                            if abs(val) > 1.5:
-                                val = val / 100.0
-                            val = round(val, 6)
-                        # ✅ Nouveau bloc à ajouter avant Donnees.objects.create
+                        # Gérer la note étoilée (*)
                         note = None
                         if "*" in str(annee):
                             note = notes_etoiles.get("*", "")
+
+                        # Si la cellule est vide
+                        if raw_val is None:
+                            texte_original = ""
+                            if idx < len(row) and row[idx] not in [None, ""]:
+                                texte_original = str(row[idx]).strip()
+                                ligne_vide = False
+                            else:
+                                texte_original = ""
+
+                            Donnees.objects.create(
+                                ligne=ligne_obj,
+                                colonne=str(annee),
+                                unite="",
+                                source=source,
+                                valeur=None,
+                                statut=texte_original,
+                                categorie_id=id_cat,
+                                tableau=tableau,
+                                note_colonne=note
+                            )
+                            continue
+                            
+                        unite = ""
+                        val = raw_val
+
+                        if is_pourcentage or had_percent:
+                            unite = "%"
+
+                            # ✅ Si la cellule Excel est un texte contenant "%", on divise par 100
+                            # sinon (Excel stocke déjà 0.1502 pour 15%), on ne touche pas.
+                            if had_percent:
+                                val = val / 100.0 if val is not None else None
+
+                            # ✅ Garder plus de précision (4 décimales)
+                            val = round(val, 4) if val is not None else None
+
+
 
                         Donnees.objects.create(
                             ligne=ligne_obj,
@@ -362,8 +378,10 @@ class ImportExcelView(APIView):
                             valeur=val,
                             categorie_id=id_cat,
                             tableau=tableau,
-                            note_colonne=note 
+                            note_colonne=note
                         )
+
+                    # Même si toute la ligne est vide, elle a été créée avec statut="" pour chaque colonne
 
                 continue  # feuille traitée
 
@@ -465,9 +483,16 @@ class ImportExcelView(APIView):
                     val = raw_val
                     if is_pourcentage or had_percent:
                         unite = "%"
-                        if abs(val) > 1.5:
-                            val = val / 100.0
-                        val = round(val, 6)
+
+                        # ✅ Si la cellule Excel est un texte contenant "%", on divise par 100
+                        # sinon (Excel stocke déjà 0.1502 pour 15%), on ne touche pas.
+                        if had_percent:
+                            val = val / 100.0 if val is not None else None
+
+                        # ✅ Garder plus de précision (4 décimales)
+                        val = round(val, 4) if val is not None else None
+
+
 
                     Donnees.objects.create(
                         ligne=ligne_obj,

@@ -78,7 +78,6 @@ function getCell(vals: Valeurs | undefined, item: ColonnesOrderItem): string {
     ""
   );
 }
-
 function formatCell(raw?: string | null): string {
   if (!raw) return "NA";
   const s = String(raw).trim();
@@ -91,7 +90,6 @@ function formatCell(raw?: string | null): string {
   const decPart = m[2] ?? "";
   return intPart + decPart;
 }
-
 /* ---------- Toolbar ---------- */
 function Toolbar({
   tableId,
@@ -717,7 +715,7 @@ function isProjectionColumn(label: string, source?: string): boolean {
       {visibleStatuts.length > 0 && (
         <div className="mt-2 text-sm text-slate-700 italic">
           {visibleStatuts.includes("N/D") && (
-            <p><span className="font-semibold">N/D</span> : Non disponible</p>
+            <p><span className="font-semibold">N/D</span> : Non déclaré</p>
           )}
           {visibleStatuts.includes("NS") && (
             <p><span className="font-semibold">NS</span> : Non spécifié</p>
