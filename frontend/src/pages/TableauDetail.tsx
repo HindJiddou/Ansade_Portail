@@ -79,9 +79,9 @@ function getCell(vals: Valeurs | undefined, item: ColonnesOrderItem): string {
   );
 }
 function formatCell(raw?: string | null): string {
-  if (!raw) return "NA";
+  if (!raw) return parent ? "NA" : "";
   const s = String(raw).trim();
-  if (!s) return "NA";
+  if (!s) return parent ? "NA" : "";
   if (s.includes("%")) return s;
   const noSpaces = s.replace(/\s/g, "");
   const m = noSpaces.match(/^(-?\d+)([.,]\d+)?$/);
@@ -671,19 +671,28 @@ function isProjectionColumn(label: string, source?: string): boolean {
                           {row.indicateur}
                         </span>
                       </td>
-                      {order.map((it, j) => (
-                        <td
-                          key={`newcell-${i}-${j}`}
-                          className={tdRight}
-                          style={{
-                            backgroundColor: isProjectionColumn(it.principal, meta.source)
-                              ? "rgba(16, 185, 129, 0.08)"
-                              : "transparent",
-                          }}
-                        >
-                          {formatCell(getCell(row.valeurs, it))}
-                        </td>
-                      ))}
+                      {order.map((it, j) => {
+                        const cellValue = getCell(row.valeurs, it);
+                        const parent = (row as any).parent_code || ""; // ✅ sécurité : gère undefined
+                        const shouldHideNA =
+                          (!cellValue || cellValue === "NA") && parent === "";
+
+                        return (
+                          <td
+                            key={`newcell-${i}-${j}`}
+                            className={tdRight}
+                            style={{
+                              backgroundColor: isProjectionColumn(it.principal, meta.source)
+                                ? "rgba(16, 185, 129, 0.08)"
+                                : "transparent",
+                            }}
+                          >
+                            {shouldHideNA ? "" : formatCell(cellValue)}
+                          </td>
+                        );
+                      })}
+
+
 
                     </tr>
                   );
