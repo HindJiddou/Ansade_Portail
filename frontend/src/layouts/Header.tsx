@@ -28,9 +28,13 @@ const Header: React.FC = () => {
     "text-green-800 bg-green-600/10 after:w-10"; // trait visible et fond léger si actif
   
   const isActive = (path: string) => {
-    if (path === "/accueil") return location.pathname === "/accueil" || location.pathname === "/";
+    if (path === "/accueil") {
+      // ✅ n'active plus "Accueil" si on est sur /categories
+      return location.pathname === "/accueil";
+    }
     return location.pathname.startsWith(path);
   };
+
 
   const linkCls = (path: string) =>
     [baseBtn, underline, isActive(path) ? activeBtn : ""].join(" ");

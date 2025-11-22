@@ -25,6 +25,7 @@ from django.contrib.auth import authenticate
 from urllib.parse import unquote
 from datetime import datetime
 from openpyxl.utils.datetime import from_excel
+import unicodedata
 
 
 
@@ -106,13 +107,38 @@ class ListeSourcesAPIView(APIView):
         sources = Tableau.objects.exclude(source="").values_list('source', flat=True).distinct()
         return Response(sorted(sources))
 
-
+def normalize_text(txt: str) -> str:
+    """
+    Nettoie et normalise une chaîne pour une recherche robuste.
+    - Supprime les accents
+    - Ignore la ponctuation
+    - Met en minuscule
+    """
+    if not txt:
+        return ""
+    txt = txt.lower()
+    txt = unicodedata.normalize("NFD", txt).encode("ascii", "ignore").decode("utf-8")
+    txt = re.sub(r"[^\w\s]", " ", txt)  # retire ponctuation
+    txt = re.sub(r"\s+", " ", txt).strip()
+    return txt
 
 class TableauxParSourceAPIView(APIView):
-    def get(self, request, source):
-        decoded_source = unquote(source)
-        tableaux = Tableau.objects.filter(source=decoded_source).values('id', 'titre')
-        return Response(list(tableaux))
+    """
+    Retourne les tableaux associés à une source donnée, via un paramètre GET (?source=...).
+    """
+    def get(self, request):
+        source = request.query_params.get("source", "")
+        normalized_input = normalize_text(source)
+
+        all_tableaux = Tableau.objects.all()
+        matched = [
+            {"id": t.id, "titre": t.titre}
+            for t in all_tableaux
+            if normalized_input in normalize_text(t.source)
+        ]
+
+        return Response(matched)
+
 
  
 class RechercheGlobaleAPIView(APIView):
@@ -268,7 +294,14 @@ class ImportExcelView(APIView):
 
                 titre = lignes[1][titre_fr_idx]
                 source = lignes[1][source_fr_idx]
-                is_pourcentage = "%" in titre
+                titre_lower = titre.lower()
+                is_pourcentage = (
+                    "%" in titre_lower
+                    or "pourcentage" in titre_lower
+                    or "proportion" in titre_lower
+                    or "porportion" in titre_lower  # pour ton cas
+                )
+
 
                 tableau = Tableau.objects.create(
                     nom_feuille=feuille,
@@ -410,10 +443,13 @@ class ImportExcelView(APIView):
                     data_start = first_non_empty_after(lignes, idx)
                     continue
 
-                if re.search(r'\bSOURCE\b', up):
-                    src_text = re.sub(r'(?i)^source\s*:?', '', joined).strip()
+                    # 🔥 Détection robuste de la ligne Source
+                if up.startswith("SOURCE") or up.startswith("SOURCES"):
+                    src_text = re.sub(r'(?i)^sources?\s*:?', '', joined).strip()
                     if src_text:
                         source = src_text
+                    continue  # 🚫 ne jamais inclure la ligne Source dans le tableau
+
 
             if not titre or data_start is None or data_start >= len(lignes):
                 continue
@@ -430,9 +466,22 @@ class ImportExcelView(APIView):
             )
 
             data_rows = lignes[data_start + 1:]
-            is_pourcentage = "%" in titre
+            titre_lower = titre.lower()
+            is_pourcentage = (
+                "%" in titre_lower
+                or "pourcentage" in titre_lower
+                or "proportion" in titre_lower
+                or "porportion" in titre_lower  # pour ton cas
+            )
+
 
             for row in data_rows:
+                # détecter la ligne source de manière robuste
+                first = str(row[0]).strip().lower()
+                if first.startswith("source"):
+                    continue
+                if first.startswith("sources"):
+                    continue
                 if not row or len(row) < 2:
                     continue
 
@@ -459,23 +508,23 @@ class ImportExcelView(APIView):
 
                     raw_val, had_percent = parse_numeric(row[cidx])  
                     if raw_val is None:
-                        # ✅ Vérifie que l'index existe avant d'y accéder
-                        texte_original = ''
+                        texte_original = ""
                         if cidx < len(row) and row[cidx] is not None:
-                            texte_original = str(row[cidx]).strip()
+                            texte_original = str(row[cidx]).strip() or ""
 
-                        if texte_original:  # s'il y a "N/D" ou "NS" etc.
-                            Donnees.objects.create(
-                                ligne=ligne_obj,
-                                colonne=str(annee),
-                                unite="",
-                                source=source,
-                                valeur=None,
-                                statut=texte_original,
-                                categorie_id=id_cat,
-                                tableau=tableau
-                            )
+                        # 🔥 Toujours créer la donnée (même vide)
+                        Donnees.objects.create(
+                            ligne=ligne_obj,
+                            colonne=str(annee),
+                            unite="",
+                            source=source,
+                            valeur=None,
+                            statut=texte_original,   # <-- clé de la correction !
+                            categorie_id=id_cat,
+                            tableau=tableau
+                        )
                         continue
+
 
 
 
@@ -549,14 +598,14 @@ class TableauDetailStructureView(APIView):
                 return d.statut  # ex: "N/D", "NS"
 
             titre_lower = (d.tableau.titre or "").lower()
-            titre_contient_pourcentage = ("%" in titre_lower) or ("pourcentage" in titre_lower)
+            titre_contient_pourcentage = ("%" in titre_lower) or ("pourcentage" in titre_lower) or ("Porportion" in titre_lower) 
 
             unite = d.unite or ""
             val = d.valeur
 
             if unite == "%":
                 val = (val * 100) if abs(val) <= 1.5 else val
-                s = f"{val:.1f}".rstrip('0').rstrip('.')
+                s = f"{val:.2f}"
                 valeur_str = s if titre_contient_pourcentage else f"{s}%"
             else:
                 valeur_str = f"{val:.2f}".rstrip('0').rstrip('.')
@@ -688,8 +737,14 @@ class TableauDetailStructureView(APIView):
                 "meta": {
                     "titre": tableau.titre,
                     "source": tableau.source or "",
-                    "etiquette_ligne": tableau.etiquette_ligne or ""
+                    "etiquette_ligne": tableau.etiquette_ligne or "",
+                    "categorie_id": tableau.theme.categorie_id,
+                    "date_verrouillage": (
+                        tableau.date_verrouillage.strftime("%Y-%m-%d")
+                        if tableau.date_verrouillage else None
+                    ),
                 },
+
                 "format": "nouveau",
                 "notes": notes_text,  
                 "statuts": list(statuts_uniques)
@@ -765,8 +820,13 @@ class TableauDetailStructureView(APIView):
                     for c, sous_vals in sous["valeurs"].items():
                         for sc, val in sous_vals.items():
                             regroupé[nom][c][sc] = val
+
                 data.append({
                     "indicateur": indicateur,
+
+                    # 👉🔥 AJOUT OBLIGATOIRE POUR AFFICHER LES VALEURS PRINCIPALES
+                    "valeurs": dict(contenu["valeurs"]),  # <--- ICI
+
                     "sous_indicateurs": [
                         {"nom": nom, "valeurs": regroupé[nom]}
                         for nom in regroupé
@@ -778,6 +838,7 @@ class TableauDetailStructureView(APIView):
                     "ligne_id": None,
                     "is_section": False
                 })
+
             else:
                 data.append({
                     "indicateur": indicateur,
@@ -810,10 +871,15 @@ class TableauDetailStructureView(APIView):
             "data": data,
             "has_sous_indicateurs": has_sous_indicateurs,
             "meta": {
-                "titre": tableau.titre,
-                "source": tableau.source or "",
-                "etiquette_ligne": tableau.etiquette_ligne or ""
-            },
+                    "titre": tableau.titre,
+                    "source": tableau.source or "",
+                    "etiquette_ligne": tableau.etiquette_ligne or "",
+                    "categorie_id": tableau.theme.categorie_id,
+                    "date_verrouillage": (
+                        tableau.date_verrouillage.strftime("%Y-%m-%d")
+                        if tableau.date_verrouillage else None
+                    ),
+                },
             "format": "ancien",
             "notes": notes_text,  
             "statuts": list(statuts_uniques)
@@ -1218,4 +1284,227 @@ class ExportTableauAPIView(APIView):
                 {"error": "Format non supporté. Utilisez ?format=pdf ou ?format=xlsx"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-  
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from collections import defaultdict
+import re
+
+
+class GroupedSourcesAutoAPIView(APIView):
+    """
+    Regroupe automatiquement les sources par logique thématique :
+    - Les groupes principaux (RGPH, EDSM, MICS, EPCV, etc.)
+    - Les synonymes (BCM = Banque Centrale de la Mauritanie, etc.)
+    - Les autres sources autonomes (chaque source = groupe)
+    """
+
+    SYNONYMS = {
+        "BCM": ["bcm", "banque centrale", "banque centrale de la mauritanie", "banque centrale la mauritanie"],
+        "RGPH": ["rgph", "recensement général de la population"],
+        "EPCV": ["epcv", "conditions de vie des ménages"],
+        "MICS": ["mics", "indicateurs multiples"],
+        "EDSM": ["edsm", "santé et démographie"],
+        "ICC": ["icc"],
+        "PIB": ["pib"],
+        "INPC": ["inpc"],
+        "SNIM": ["snim"],
+        "SNDE": ["snde"],
+        "SOMELEC": ["somelec"],
+        "SAM": ["météorologie", "sam"],
+        "JUSTICE": ["prison", "justice"],
+        "DOUANES": ["douanes", "douane"],
+    }
+
+    COMBOS = {
+        "RGPH, MICS et EDSM": ["rgph", "mics", "edsm"],
+        "RGPH et EDSM": ["rgph", "edsm"],
+    }
+
+    def clean_text(self, text):
+        """Nettoyage basique pour comparaison."""
+        if not text:
+            return ""
+        text = text.lower()
+        text = re.sub(r"[^\w\s]", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+
+    def detect_group(self, text):
+        """Détecte le groupe thématique principal."""
+        txt = self.clean_text(text)
+
+        # Cas combinés (plus précis)
+        for combo_name, keywords in self.COMBOS.items():
+            if all(k in txt for k in keywords):
+                return combo_name
+
+        # Cas simples et synonymes
+        for group, mots in self.SYNONYMS.items():
+            if any(m in txt for m in mots):
+                return group
+
+        # Aucun mot-clé → retour de None
+        return None
+
+    def get(self, request):
+        from .models import Tableau
+
+        sources = Tableau.objects.values_list("source", flat=True).distinct()
+        grouped = defaultdict(list)
+
+        # --- Détection du groupe de chaque source ---
+        for src in sources:
+            if not src:
+                continue
+
+            cleaned = src.strip()
+            group = self.detect_group(cleaned)
+
+            if group:
+                grouped[group].append(cleaned)
+            else:
+                # Cas sans correspondance → chaque source devient son propre groupe
+                grouped[cleaned].append(cleaned)
+
+        # --- Nettoyage des doublons ---
+        for k, v in grouped.items():
+            grouped[k] = sorted(list(set(v)))
+
+        # --- Répartition en sections principales ---
+        structure = {
+            "ANSADE": {},
+            "AUTRES": {},
+        }
+
+        # Groupes à classer sous ANSADE
+        ansade_groups = [
+            "RGPH, MICS et EDSM",
+            "RGPH et EDSM",
+            "RGPH",
+            "EPCV",
+            "MICS",
+            "EDSM",
+            "ICC",
+            "PIB",
+            "INPC",
+        ]
+
+        # Groupes à classer sous AUTRES
+        autres_groups = [
+            "BCM", "SNIM", "SNDE", "SOMELEC", "SAM",
+            "JUSTICE", "DOUANES",
+        ]
+
+        # --- Répartition ---
+        for name, srcs in grouped.items():
+            if name in ansade_groups:
+                structure["ANSADE"][name] = srcs
+            elif name in autres_groups:
+                structure["AUTRES"][name] = srcs
+            else:
+                # Cas : chaque source individuelle
+                structure["AUTRES"][name] = srcs
+
+        return Response(structure)
+
+        
+class TableauUpdateMetaAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, tableau_id):
+        # --- Récupération du tableau ---
+        try:
+            tableau = Tableau.objects.get(id=tableau_id)
+        except Tableau.DoesNotExist:
+            return Response({"error": "Tableau non trouvé"}, status=404)
+
+        user = request.user
+
+        # --- 🔐 Vérification verrouillage ---
+        from datetime import date
+        if tableau.date_verrouillage and date.today() > tableau.date_verrouillage:
+            return Response({"error": "Modification verrouillée"}, status=403)
+
+        # --- 🔒 Permissions ---
+        if user.is_superuser:
+            # Superuser → autorisé pour tout
+            pass
+
+        elif user.is_chef:
+            # Chef → ne peut modifier que les tableaux de SA catégorie
+            if tableau.theme.categorie_id != user.categorie_id:
+                return Response(
+                    {"error": "Vous ne pouvez modifier que les tableaux de votre catégorie"},
+                    status=403
+                )
+
+        else:
+            # Autres utilisateurs → interdit
+            return Response({"error": "Permission refusée"}, status=403)
+
+        # --- Mise à jour ---
+        titre = request.data.get("titre")
+        source = request.data.get("source")
+
+        if titre is not None:
+            tableau.titre = titre.strip()
+
+        if source is not None:
+            tableau.source = source.strip()
+
+        tableau.save()
+        return Response({"message": "OK"})
+
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, tableau_id):
+        try:
+            tableau = Tableau.objects.get(id=tableau_id)
+        except Tableau.DoesNotExist:
+            return Response({"error": "Tableau non trouvé"}, status=404)
+
+        user = request.user
+
+        # --- Vérification verrouillage ---
+        from datetime import date
+        if tableau.date_verrouillage and date.today() > tableau.date_verrouillage:
+            return Response({"error": "Modification verrouillée"}, status=403)
+
+        # --- Permissions ---
+        if user.is_superuser:
+            pass
+        elif user.is_chef:
+            if tableau.theme.categorie_id != user.categorie_id:
+                return Response({"error": "Vous ne pouvez modifier que vos propres tableaux"}, status=403)
+        else:
+            return Response({"error": "Permission refusée"}, status=403)
+
+        titre = request.data.get("titre")
+        source = request.data.get("source")
+
+        if titre is not None:
+            tableau.titre = titre.strip()
+
+        if source is not None:
+            tableau.source = source.strip()
+
+        tableau.save()
+        return Response({"message": "OK"})
+
+class SourceSuggestAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        term = request.query_params.get("q", "").strip().lower()
+        if not term:
+            return Response([])
+
+        matches = (
+            Tableau.objects
+            .filter(source__icontains=term)
+            .values_list("source", flat=True)
+            .distinct()
+        )
+
+        return Response(list(matches))

@@ -62,6 +62,8 @@ class Tableau(models.Model):
     etiquette_ligne = models.CharField(max_length=255, blank=True, null=True)
     theme = models.ForeignKey(Theme, on_delete=models.CASCADE)
     source = models.TextField(blank=True, null=True)
+    date_verrouillage = models.DateField(null=True, blank=True)
+
 
     def __str__(self):
         return self.titre

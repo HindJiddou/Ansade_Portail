@@ -1,6 +1,10 @@
 import React from "react";
-import { motion } from "framer-motion";
+// import { motion } from "framer-motion";
 import { BandeActualites } from "./BandeActualites";
+// import { Link } from "react-router-dom";
+// import { useEffect, useState } from "react";
+// import axios from "axios";
+
 import {
   FaChartBar,
   FaDatabase,
@@ -62,7 +66,7 @@ const Accueil: React.FC = () => {
         </motion.div>
 
         {/* Bande d’actualités */}
-        <BandeActualites />
+        {/* <BandeActualites /> */}
       </section>
 
       {/* ========= OBJECTIF ========= */}
@@ -209,31 +213,12 @@ const Accueil: React.FC = () => {
             des tableaux, séries temporelles et sources officielles.
           </p>
 
-          <div className="mt-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {[
-              { titre: "Démographie", desc: "Population, structure par âge et sexe, croissance." },
-              { titre: "Éducation", desc: "Scolarisation, réussite, infrastructures, alphabétisation." },
-              { titre: "Santé", desc: "Indicateurs sanitaires, couverture, personnel et équipements." },
-              { titre: "Économie", desc: "PIB, emploi, commerce, prix et activités économiques." },
-              { titre: "Environnement", desc: "Ressources naturelles, climat, territoires et gouvernance." },
-              { titre: "Conditions de vie", desc: "Pauvreté, inégalités, développement humain." },
-            ].map((d, i) => (
-              <motion.div
-                key={d.titre}
-                initial={{ opacity: 0, y: 14 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.45, delay: i * 0.04 }}
-                whileHover={{ y: -3 }}
-                className="group rounded-2xl p-5 bg-white ring-1 ring-slate-200 hover:ring-emerald-300 hover:bg-emerald-50/40 transition shadow-sm hover:shadow-md"
-              >
-                <h3 className="font-semibold text-slate-900">{d.titre}</h3>
-                <p className="mt-1 text-slate-700">{d.desc}</p>
-              </motion.div>
-            ))}
-          </div>
+          <DomainesCouvertsLiens />
         </div>
       </section>
+
+
+
 
       {/* ========= GUIDE ========= */}
       <section className="max-w-6xl mx-auto px-6 py-16">
@@ -243,17 +228,17 @@ const Accueil: React.FC = () => {
           {[
             {
               icon: <FaChartLine />,
-              title: "Consulter les statistiques",
+              title:"Consulter les statistiques",
               desc: "Parcourez les categories dans l’onglet « Statistiques » pour visualiser, filtrer et exporter les données.",
             },
             {
               icon: <FaSearch />,
-              title: "Lancer une recherche",
+              title:"Lancer une recherche",
               desc: "Utilisez l’onglet « Recherche » pour trouver rapidement un tableau, un indicateur ou un thème spécifique.",
             },
             {
               icon: <FaDatabase />,
-              title: "Consulter les sources",
+              title:"Consulter les sources",
               desc: "Accédez aux sources et métadonnées officielles pour mieux comprendre la provenance et la fiabilité des données.",
             },
           ].map((x, i) => (
@@ -276,6 +261,107 @@ const Accueil: React.FC = () => {
         </div>
       </section>
     </main>
+  );
+};
+import { useEffect, useState } from "react";
+import axios from "axios";
+import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+
+const DomainesCouvertsLiens = () => {
+  const navigate = useNavigate();
+  const [themes, setThemes] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+
+  useEffect(() => {
+    Promise.all([axios.get("/api/themes/"), axios.get("/api/categories/")])
+      .then(([t, c]) => {
+        setThemes(t.data);
+        setCategories(c.data);
+      })
+      .catch(console.error);
+  }, []);
+
+  // 🔹 Fonction utilitaire — enlève les accents et passe en minuscule
+  const normalize = (str: string) =>
+    str
+      ?.toLowerCase()
+      ?.normalize("NFD")
+      ?.replace(/[\u0300-\u036f]/g, "")
+      ?.trim();
+
+  const getLink = (titre: string) => {
+    const norm = normalize(titre);
+
+    // Démographie / Éducation / Santé → thèmes correspondants
+    if (["demographie", "education", "sante"].includes(norm)) {
+      const theme = themes.find((t) =>
+        normalize(t.nom_theme).includes(norm)
+      );
+      return theme ? `/themes/${theme.id}` : null;
+    }
+
+    // Économie → Catégorie 4 (fixe)
+    if (norm.includes("economie")) {
+      return "/categories/4";
+    }
+
+    // Environnement → thème Environnement
+    if (norm.includes("environnement")) {
+      const theme = themes.find((t) =>
+        normalize(t.nom_theme).includes("environnement")
+      );
+      return theme ? `/themes/${theme.id}` : null;
+    }
+
+    // Conditions de vie → thème Conditions de vie
+    if (norm.includes("conditions")) {
+      const theme = themes.find((t) =>
+        normalize(t.nom_theme).includes("conditions de vie")
+      );
+      return theme ? `/themes/${theme.id}` : null;
+    }
+
+    return null;
+  };
+
+  const domaines = [
+    { titre: "Démographie", desc: "Population, structure par âge et sexe, croissance." },
+    { titre: "Éducation", desc: "Scolarisation, réussite, infrastructures, alphabétisation." },
+    { titre: "Santé", desc: "Indicateurs sanitaires, couverture, personnel et équipements." },
+    { titre: "Économie", desc: "PIB, emploi, commerce, prix et activités économiques." },
+    { titre: "Environnement", desc: "Ressources naturelles, climat, territoires et gouvernance." },
+    { titre: "Conditions de vie", desc: "Pauvreté, inégalités, développement humain." },
+  ];
+
+  return (
+    <div className="mt-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+      {domaines.map((d, i) => {
+        const link = getLink(d.titre);
+        return (
+          <motion.div
+            key={d.titre}
+            initial={{ opacity: 0, y: 14 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.45, delay: i * 0.04 }}
+            whileHover={{ y: -3 }}
+          >
+            <div
+              onClick={() => link && navigate(link)}
+              className={`cursor-pointer group rounded-2xl p-5 bg-white ring-1 ring-slate-200 hover:ring-emerald-300 hover:bg-emerald-50/40 transition shadow-sm hover:shadow-md ${
+                link ? "" : "opacity-60 pointer-events-none"
+              }`}
+            >
+              <h3 className="font-semibold text-slate-900 group-hover:text-emerald-700 transition">
+                {d.titre}
+              </h3>
+              <p className="mt-1 text-slate-700">{d.desc}</p>
+            </div>
+          </motion.div>
+        );
+      })}
+    </div>
   );
 };
 

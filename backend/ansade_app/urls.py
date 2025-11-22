@@ -6,7 +6,7 @@ from .views import (
     TableauFiltresOptionsView, TableauFiltreStructureView, TableauAnalyseAPIView,
     CarteParTableauAPIView, ListeSourcesAPIView, TableauxParSourceAPIView,
     RechercheGlobaleAPIView, UserInfoAPIView, CustomLoginView,
-    ExportTableauAPIView
+    ExportTableauAPIView,GroupedSourcesAutoAPIView,TableauUpdateMetaAPIView,SourceSuggestAPIView,
 )
 
 router = DefaultRouter()
@@ -31,8 +31,14 @@ urlpatterns = [
     path('tableaux/<int:pk>/analyse/', TableauAnalyseAPIView.as_view(), name='tableau-analyse'),
     path("tableaux/<int:tableau_id>/carte/", CarteParTableauAPIView.as_view(), name="carte-par-annee"),
     path('sources/', ListeSourcesAPIView.as_view(), name='liste-sources'),
-    path('sources/<path:source>/tableaux/', TableauxParSourceAPIView.as_view(), name='tableaux-par-source'),
+    path('sources/tableaux/', TableauxParSourceAPIView.as_view(), name='tableaux-par-source'),
     path("recherche-globale/", RechercheGlobaleAPIView.as_view(), name="recherche-globale"),
     path("user-info/", UserInfoAPIView.as_view(), name="user-info"),
     path('login/', CustomLoginView.as_view(), name='custom_login'),
+    path("sources/grouped-auto/", GroupedSourcesAutoAPIView.as_view(), name="grouped-sources-auto"),
+    path("tableaux/<int:tableau_id>/update-meta/", TableauUpdateMetaAPIView.as_view(),),
+    path("tableaux/sources/suggest/", SourceSuggestAPIView.as_view()),
+
+
+
 ]

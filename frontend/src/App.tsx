@@ -23,8 +23,9 @@ function App() {
       <Routes>
      
           <Route element={<MainLayout />}>
-          <Route index element={<Accueil />} />
-          <Route path="accueil" element={<Accueil />} />
+          <Route index element={<Categories />} />
+          <Route path="categories" element={<Categories />} />
+          
 
         
 
@@ -33,7 +34,7 @@ function App() {
                 <ChefDepartementDashboard />
               </ProtectedRoute>
             } />
-          <Route path="categories" element={<Categories />} />
+          <Route path="accueil" element={<Accueil />} />
           <Route path="categories/:id" element={<Themes />} />
           <Route path="themes/:id" element={<Tableaux />} />
           <Route path="tableaux/:id" element={<TableauDetail />} />

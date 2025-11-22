@@ -10,7 +10,7 @@ import {
   useLayoutEffect,
 } from "react";
 import { useParams } from "react-router-dom";
-import axios from "axios";
+import axiosInstance from "../utils/axiosInstance"; // 
 import BackButton from "./BackButton";
 
 /* ---------- Types ---------- */
@@ -31,12 +31,26 @@ type Payload = {
   colonnes_order?: ColonnesOrderItem[];
   data: Row[];
   has_sous_indicateurs: boolean;
-  meta?: { titre: string; source: string; etiquette_ligne: string };
+  meta?: {
+  titre: string;
+  source: string;
+  etiquette_ligne: string;
+  categorie_id?: number;
+  date_verrouillage?: string | null;
+  };
+
   format?: "ancien" | "nouveau";
   notes?: string[];
 };
 
-type Meta = { titre: string; source: string; etiquette_ligne: string };
+type Meta = {
+  titre: string;
+  source: string;
+  etiquette_ligne: string;
+  categorie_id?: number;
+  date_verrouillage?: string | null;
+};
+
 
 type FilterOptions = { lignes: string[]; colonnes: string[] };
 
@@ -156,18 +170,19 @@ function FilterModal({
   const [selectedLignes, setSelectedLignes] = useState<string[]>([]);
   const [selectedCols, setSelectedCols] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  
 
   useEffect(() => {
     if (!show) return;
     (async () => {
-      const { data } = await axios.get(`/api/tableaux/${id}/filtres-options/`);
+      const { data } = await axiosInstance.get(`/tableaux/${id}/filtres-options/`);
       setOptions(data);
       setLoading(false);
     })();
   }, [show, id]);
 
   const handleApply = async () => {
-    const { data } = await axios.post(`/api/tableaux/${id}/filtrer-structure/`, {
+    const { data } = await axiosInstance.post(`/tableaux/${id}/filtrer-structure/`, {
       lignes: selectedLignes,
       colonnes: selectedCols,
     });
@@ -260,9 +275,12 @@ export default function TableauDetail() {
   const { id } = useParams();
   const tableId = `tableau-${id}`;
   const [payload, setPayload] = useState<Payload | null>(null);
+  const user = JSON.parse(localStorage.getItem("user") || "null");
+  console.log("USER =", user);
   const [visibleStatuts, setVisibleStatuts] = useState<string[]>([]);
   const [meta, setMeta] = useState<Meta | null>(null);
   const [loading, setLoading] = useState(true);
+ 
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const headRow1Ref = useRef<HTMLTableRowElement>(null);
@@ -273,12 +291,30 @@ export default function TableauDetail() {
   const [showRightArrow, setShowRightArrow] = useState(false);
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showFilter, setShowFilter] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editingSource, setEditingSource] = useState(false);
+  const [sourceSuggestions, setSourceSuggestions] = useState<string[]>([]);
+
+
+  const [newTitle, setNewTitle] = useState("");
+  const [newSource, setNewSource] = useState("");
+  const canEdit =
+    user?.is_superuser ||
+    (user?.is_chef && user?.categorie?.id === payload?.meta?.categorie_id);
+
+
+  const dateVerrou = payload?.meta?.date_verrouillage;
+  const isLocked = dateVerrou ? new Date() > new Date(dateVerrou) : false;
+
+
+
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const { data } = await axios.get(`/api/tableaux/${id}/structure/`);
+        const { data } = await axiosInstance.get(`/tableaux/${id}/structure/`);
+        console.log("META =", data.meta); 
         if (!alive) return;
         setPayload(data);
         const m = data?.meta || {};
@@ -439,10 +475,85 @@ function isProjectionColumn(label: string, source?: string): boolean {
         </div>
 
         <div className="flex-1 text-center">
-          <h1 className="inline-flex items-center gap-2 text-xl md:text-2xl font-bold text-emerald-900">
-            {meta.titre}
-          </h1>
+
+          {/* ---------- MODE NORMAL ---------- */}
+          {!editingTitle ? (
+            <div className="inline-flex items-center gap-2">
+
+              <h1 className="text-xl md:text-2xl font-bold text-emerald-900">
+                {meta.titre}
+              </h1>
+
+              {canEdit && !isLocked && (
+                <button
+                  onClick={() => {
+                    setNewTitle(meta.titre);
+                    setEditingTitle(true);
+                  }}
+                  className="text-slate-500 hover:text-emerald-700 transition"
+                  title="Modifier le titre"
+                >
+                  <span className="text-lg">✐</span>
+                </button>
+              )}
+            </div>
+          ) : (
+
+            /* ---------- MODE ÉDITION ---------- */
+            <div className="flex flex-col items-center gap-3 w-full max-w-2xl mx-auto">
+
+              {/* Champ de saisie large et stylé */}
+              <input
+                autoFocus
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-center text-lg shadow-sm focus:ring-2 focus:ring-emerald-300 focus:outline-none"
+              />
+
+              {/* Boutons OK & Annuler */}
+              <div className="flex items-center gap-4">
+                
+                {/* OK */}
+                <button
+                  onClick={async () => {
+                    try {
+                      console.log("PATCH →", `/api/tableaux/${id}/update-meta/`);
+
+                      const response = await axiosInstance.patch(
+                        `/tableaux/${id}/update-meta/`,
+                        { titre: newTitle }
+                      );
+
+                      console.log("PATCH OK:", response.data);
+
+                      setEditingTitle(false);
+                      window.location.reload();
+
+                    } catch (err) {
+                      console.error("PATCH ERROR:", err);
+                      alert("Erreur lors de l’enregistrement du titre");
+                    }
+                  }}
+                  className="px-4 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition text-sm"
+                >
+                  OK
+                </button>
+
+                {/* Annuler */}
+                <button
+                  onClick={() => setEditingTitle(false)}
+                  className="px-4 py-1 rounded-lg bg-slate-200 text-slate-800 hover:bg-slate-300 transition text-sm"
+                >
+                  Annuler
+                </button>
+
+              </div>
+            </div>
+          )}
+
         </div>
+
+
 
         <Toolbar
           tableId={tableId}
@@ -481,7 +592,8 @@ function isProjectionColumn(label: string, source?: string): boolean {
           >
             <colgroup>
               <col style={{ width: LEFT1_W }} />
-              {hasAnySubs && <col style={{ width: LEFT2_W }} />}
+              {/* Plus de colonne spéciale pour sous-indicateurs */}
+
               {order.map((_, i) => (
                 <col key={`col-${i}`} style={{ width: dataColWidthCalc, minWidth: DATA_MIN }} />
               ))}
@@ -497,13 +609,7 @@ function isProjectionColumn(label: string, source?: string): boolean {
                   {meta.etiquette_ligne || "Indicateur"}
                 </th>
 
-                {hasAnySubs && (
-                  <th
-                    className={`${thBase} text-left sticky top-0 z-40`}
-                    style={{ left: left1Wpx }}
-                    rowSpan={singleHeaderRow ? 1 : 2}
-                  />
-                )}
+               
 
                 {singleHeaderRow ? (
                   order.map((it, i) => (
@@ -592,51 +698,75 @@ function isProjectionColumn(label: string, source?: string): boolean {
                 payload.data.map((row, idx) => {
                   const subs = row.sous_indicateurs || [];
                   const hasSubs = subs.length > 0;
-                  if (!hasSubs) {
-                    return (
-                      <tr key={`old-${idx}`} className={zebra}>
-                        <td className={`${tdLeft} sticky left-0 z-10 bg-white`}>
-                          <span className="font-medium text-emerald-900">{row.indicateur}</span>
-                        </td>
-                        {hasAnySubs && (
-                          <td className={`${tdLeft} sticky z-10 bg-white`} style={{ left: left1Wpx }} />
-                        )}
-                        {order.map((it, i) => (
-                          <td
-                            key={`oldcell-${i}-${i}`}
-                            className={tdRight}
-                            style={{
-                              backgroundColor: isProjectionColumn(it.principal, meta.source)
-                                ? "rgba(16, 185, 129, 0.08)"
-                                : "transparent",
-                            }}
 
-                          >
-                            {formatCell(getCell(row.valeurs, it))}
-                          </td>
-
-                        ))}
-                      </tr>
+                  // 🔍 Détection si la ligne principale contient déjà des valeurs
+                  const hasMainValues =
+                    row.valeurs &&
+                    Object.values(row.valeurs).some((cols) =>
+                      Object.values(cols || {}).some((v) => v && v.trim() !== "")
                     );
-                  }
+
                   return (
                     <Fragment key={`old-${idx}`}>
+
+                      {/* --------------------------------------
+                          1) LIGNE PRINCIPALE (section / ou avec valeurs)
+                      ----------------------------------------- */}
+                      <tr className={zebra}>
+                        <td
+                          className={`${tdLeft} sticky left-0 z-10 bg-slate-50 font-semibold text-emerald-900`}
+                        >
+                          {row.indicateur}
+                        </td>
+
+                        {/* Cas 1 : indicateur principal contient des valeurs */}
+                        {hasMainValues &&
+                          order.map((it, i) => (
+                            <td
+                              key={`main-val-${idx}-${i}`}
+                              className={tdRight}
+                              style={{
+                                backgroundColor: isProjectionColumn(it.principal, meta.source)
+                                  ? "rgba(16, 185, 129, 0.08)"
+                                  : "transparent",
+                              }}
+                            >
+                              {formatCell(getCell(row.valeurs, it))}
+                            </td>
+                          ))}
+
+                        {/* Cas 2 : indicateur principal ne contient PAS de valeurs */}
+                        {!hasMainValues &&
+                          order.map((it, i) => (
+                            <td
+                              key={`main-empty-${idx}-${i}`}
+                              className={tdRight}
+                              style={{
+                                backgroundColor: isProjectionColumn(it.principal, meta.source)
+                                  ? "rgba(16, 185, 129, 0.08)"
+                                  : "transparent",
+                              }}
+                            >
+                              {/* cellule vide */}
+                            </td>
+                          ))}
+                      </tr>
+
+                      {/* --------------------------------------
+                          2) SOUS-INDICATEURS AFFICHÉS EN DESSOUS
+                      ----------------------------------------- */}
                       {subs.map((s, k) => (
                         <tr key={`old-sub-${idx}-${k}`} className={zebra}>
-                          {k === 0 && (
-                            <td
-                              className={`${tdLeft} sticky left-0 z-10 bg-slate-50 font-medium text-emerald-900`}
-                              rowSpan={subs.length}
-                            >
-                              {row.indicateur}
-                            </td>
-                          )}
-                          <td className={`${tdLeft} sticky z-10 bg-white`} style={{ left: left1Wpx }}>
+                          <td
+                            className={`${tdLeft} sticky left-0 z-10 bg-white`}
+                            style={{ paddingLeft: "22px" }}
+                          >
                             {s.nom}
                           </td>
-                          {order.map((it, i) => (
+
+                          {order.map((it, j) => (
                             <td
-                              key={`old-subcell-${idx}-${k}-${i}`}
+                              key={`old-subcell-${idx}-${k}-${j}`}
                               className={tdRight}
                               style={{
                                 backgroundColor: isProjectionColumn(it.principal, meta.source)
@@ -647,12 +777,12 @@ function isProjectionColumn(label: string, source?: string): boolean {
                               {formatCell(getCell(s.valeurs, it))}
                             </td>
                           ))}
-
                         </tr>
                       ))}
                     </Fragment>
                   );
                 })}
+
 
               {!isOld &&
                 payload.data.map((row, i) => {
@@ -673,24 +803,71 @@ function isProjectionColumn(label: string, source?: string): boolean {
                       </td>
                       {order.map((it, j) => {
                         const cellValue = getCell(row.valeurs, it);
-                        const parent = (row as any).parent_code || ""; // ✅ sécurité : gère undefined
-                        const shouldHideNA =
-                          (!cellValue || cellValue === "NA") && parent === "";
+                        const parent = (row as any).parent_code || "";
+
+                        // Vérifie si la ligne est entièrement vide (toutes les valeurs vides ou NA)
+                        const isRowEmpty = Object.values(row.valeurs || {}).every(
+                          (cols) => Object.values(cols || {}).every((v) => !v || v === "NA")
+                        );
+
+                        // Condition : si statut vide et parent vide
+                        const isEmptyStatutNoParent = (!cellValue || cellValue === "") && parent === "";
+
+                        // ✅ Cas 1 : ligne entièrement vide → ne rien afficher
+                        if (isEmptyStatutNoParent && isRowEmpty) {
+                          return (
+                            <td
+                              key={`newcell-${i}-${j}`}
+                              className={tdRight}
+                              style={{
+                                backgroundColor: isProjectionColumn(it.principal, meta.source)
+                                  ? "rgba(16, 185, 129, 0.08)"
+                                  : "transparent",
+                              }}
+                            >
+                              {""}
+                            </td>
+                          );
+                        }
+
+                        // ✅ Cas 2 : ligne non vide mais statut et parent vides → afficher "NA"
+                        if (isEmptyStatutNoParent && !isRowEmpty) {
+                          return (
+                            <td
+                              key={`newcell-${i}-${j}`}
+                              className={tdRight}
+                              style={{
+                                backgroundColor: isProjectionColumn(it.principal, meta.source)
+                                  ? "rgba(16, 185, 129, 0.08)"
+                                  : "transparent",
+                              }}
+                            >
+                              {"NA"}
+                            </td>
+                          );
+                        }
+
+                        // ✅ Cas normal : affichage standard avec style dynamique
+                        const isNumeric =
+                          typeof cellValue === "number" ||
+                          (cellValue && /^[\d\s.,]+$/.test(cellValue.toString()));
 
                         return (
                           <td
                             key={`newcell-${i}-${j}`}
-                            className={tdRight}
+                            className={`${tdRight} ${isNumeric ? "whitespace-nowrap min-w-[110px]" : ""}`}
                             style={{
                               backgroundColor: isProjectionColumn(it.principal, meta.source)
                                 ? "rgba(16, 185, 129, 0.08)"
                                 : "transparent",
                             }}
                           >
-                            {shouldHideNA ? "" : formatCell(cellValue)}
+                            {formatCell(cellValue)}
                           </td>
                         );
                       })}
+
+
 
 
 
@@ -703,14 +880,114 @@ function isProjectionColumn(label: string, source?: string): boolean {
       </div>
 
       {/* Source */}
-      {meta.source && (
-        <div className="mt-3 text-sm text-slate-600 italic">
-          <p>
+      {/* ⭐ SOURCE – édition inline */}
+      <div className="mt-3 text-sm text-slate-600 italic">
+
+        {!editingSource ? (
+          <p className="flex items-start gap-2">
+
             <span className="mr-1">📌</span>
-            <span className="font-medium not-italic">Source :</span> {meta.source}
+            <span className="font-medium not-italic">Source :</span>
+
+            <span>{meta.source || "—"}</span>
+
+            {/* Icône ✐ pour éditer */}
+            {canEdit && !isLocked && (
+              <button
+                onClick={() => {
+                  setNewSource(meta.source || "");
+                  setEditingSource(true);
+                }}
+                className="text-slate-400 hover:text-emerald-700 ml-2"
+                title="Modifier la source"
+              >
+                <span className="text-base">✐</span>
+              </button>
+            )}
           </p>
-        </div>
-      )}
+        ) : (
+          <div className="flex flex-col gap-3 w-full max-w-2xl">
+
+            {/* Champ édition source */}
+            <textarea
+              autoFocus
+              value={newSource}
+              onChange={async (e) => {
+                const val = e.target.value;
+                setNewSource(val);
+
+                // Charger les suggestions
+                if (val.trim().length >= 3) {
+                  try {
+                    const res = await axiosInstance.get(
+                      `/tableaux/sources/suggest/?q=${encodeURIComponent(val)}`
+                    );
+                    setSourceSuggestions(res.data);
+                  } catch (err) {
+                    console.error(err);
+                  }
+                } else {
+                  setSourceSuggestions([]);
+                }
+              }}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-[15px] shadow-sm focus:ring-2 focus:ring-emerald-300"
+              rows={2}
+            />
+
+            {/* 🔍 Suggestions */}
+            {sourceSuggestions.length > 0 && (
+              <div className="border border-slate-200 bg-white rounded-lg shadow p-2 max-h-40 overflow-auto mt-1">
+                {sourceSuggestions.map((s, i) => (
+                  <p
+                    key={i}
+                    onClick={() => {
+                      setNewSource(s);
+                      setSourceSuggestions([]);
+                    }}
+                    className="px-2 py-1 text-sm cursor-pointer hover:bg-emerald-50 rounded"
+                  >
+                    {s}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {/* Boutons OK / Annuler */}
+            <div className="flex gap-4">
+
+              {/* OK */}
+              <button
+                onClick={async () => {
+                  try {
+                    await axiosInstance.patch(
+                      `/tableaux/${id}/update-meta/`,
+                      { source: newSource }
+                    );
+                    setEditingSource(false);
+                    window.location.reload();
+                  } catch (err) {
+                    console.error(err);
+                    alert("Erreur lors de l’enregistrement de la source");
+                  }
+                }}
+                className="px-4 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-sm"
+              >
+                OK
+              </button>
+
+              {/* Annuler */}
+              <button
+                onClick={() => setEditingSource(false)}
+                className="px-4 py-1 rounded-lg bg-slate-200 text-slate-800 hover:bg-slate-300 text-sm"
+              >
+                Annuler
+              </button>
+
+            </div>
+          </div>
+        )}
+      </div>
+
       {payload?.notes && payload.notes.length > 0 && (
         <div className="mt-1 text-sm text-slate-600 italic">
           {payload.notes.map((n, i) => (

@@ -42,7 +42,7 @@ class ThemeAdmin(admin.ModelAdmin):
 
 @admin.register(Tableau)
 class TableauAdmin(admin.ModelAdmin):
-    list_display = ('id', 'nom_feuille', 'titre', 'theme','etiquette_ligne')
+    list_display = ('id', 'nom_feuille', 'titre', 'theme','etiquette_ligne','source')
     search_fields = ('titre',)
     list_filter = ('theme',)
 

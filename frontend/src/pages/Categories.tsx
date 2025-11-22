@@ -56,8 +56,7 @@ export default function Categories() {
       {/* En-tête */}
       <header className="text-center mt-6 mb-10">
         <p className="text-gray-600 text-lg leading-relaxed max-w-3xl mx-auto">
-          Les statistiques officielles de l’
-          <span className="font-semibold text-emerald-700">ANSADE</span> sont
+          Les statistiques officielles sont
           regroupées en <span className="font-medium">quatre grandes catégories</span>.
           Chaque catégorie regroupe plusieurs{" "}
           <span className="font-medium">thèmes</span> couvrant les principaux domaines
