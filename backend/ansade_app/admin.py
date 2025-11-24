@@ -41,6 +41,7 @@ class ThemeAdmin(admin.ModelAdmin):
     list_display_links = ('nom_theme',)  # 🔥 Rend le nom cliquable
     search_fields = ('nom_theme',)
     list_filter = ('categorie',)
+    list_display_links = ('nom_theme',) 
 
 @admin.register(Tableau)
 class TableauAdmin(admin.ModelAdmin):
