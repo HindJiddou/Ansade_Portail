@@ -92,37 +92,77 @@ function getCell(vals: Valeurs | undefined, item: ColonnesOrderItem): string {
     ""
   );
 }
-function formatCell(raw?: string | null): string {
-  if (!raw) return parent ? "NA" : "";
+
+function formatCell(raw?: string | null, showDecimals = false, format?: "ancien" | "nouveau"): string {
+  if (!raw) return "NA";
   const s = String(raw).trim();
-  if (!s) return parent ? "NA" : "";
+  if (!s) return "NA";
+
+  // Garder les pourcentages tels quels
   if (s.includes("%")) return s;
-  const noSpaces = s.replace(/\s/g, "");
-  const m = noSpaces.match(/^(-?\d+)([.,]\d+)?$/);
-  if (!m) return s;
-  const intPart = m[1].replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-  const decPart = m[2] ?? "";
-  return intPart + decPart;
+
+  // Conversion en nombre
+  const num = parseFloat(s.replace(/\s/g, "").replace(",", "."));
+  if (isNaN(num)) return s;
+
+  // ✅ Afficher deux décimales si le bouton est activé
+  if (showDecimals) {
+    return num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, " "); // ajoute espaces entre milliers
+  }
+
+  // ✅ Sinon arrondir sans décimales avec espaces
+  return Math.round(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
+
+
+
 /* ---------- Toolbar ---------- */
 function Toolbar({
   tableId,
   title,
   onFilter,
+  user,
+  payload,
+  showDecimals,
+  setShowDecimals,
 }: {
   tableId: string;
   title: string;
   onFilter: () => void;
+  user: any;
+  payload: any;
+  showDecimals: boolean;
+  setShowDecimals: (val: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
+
   return (
     <div className="flex items-center gap-2">
+      {/* ✅ Bouton décimales visible seulement pour admin ou chef autorisé */}
+      {(user?.is_superuser ||
+        (user?.is_chef && user?.categorie?.id === payload?.meta?.categorie_id)) && (
+        <button
+          onClick={() => setShowDecimals(!showDecimals)}
+          className={`inline-flex items-center gap-2 rounded-lg border text-sm font-medium shadow-sm transition px-3 py-2
+            ${
+              showDecimals
+                ? "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700"
+                : "bg-white text-emerald-700 border-emerald-400 hover:bg-emerald-50"
+            }`}
+        >
+          {showDecimals ? "Masquer décimales" : "Afficher décimales"}
+        </button>
+      )}
+
+      {/* 🔍 Filtrage */}
       <button
         onClick={onFilter}
         className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:border-emerald-300 transition"
       >
         <span className="text-emerald-600">🔎</span> Filtrage
       </button>
+
+      {/* ⬇️ Exporter */}
       <div className="relative">
         <button
           onClick={() => setOpen((v) => !v)}
@@ -153,6 +193,7 @@ function Toolbar({
     </div>
   );
 }
+
 
 /* ---------- Modal filtrage ---------- */
 function FilterModal({
@@ -294,6 +335,7 @@ export default function TableauDetail() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [editingSource, setEditingSource] = useState(false);
   const [sourceSuggestions, setSourceSuggestions] = useState<string[]>([]);
+  const [showDecimals, setShowDecimals] = useState(false);
 
 
   const [newTitle, setNewTitle] = useState("");
@@ -554,12 +596,17 @@ function isProjectionColumn(label: string, source?: string): boolean {
         </div>
 
 
-
+ 
         <Toolbar
           tableId={tableId}
           title={meta.titre}
           onFilter={() => setShowFilter(true)}
+          user={user}
+          payload={payload}
+          showDecimals={showDecimals}
+          setShowDecimals={setShowDecimals}
         />
+
       </div>
 
       {/* Tableau */}
@@ -731,7 +778,7 @@ function isProjectionColumn(label: string, source?: string): boolean {
                                   : "transparent",
                               }}
                             >
-                              {formatCell(getCell(row.valeurs, it))}
+                              {formatCell(getCell(row.valeurs, it),showDecimals, payload?.format)}
                             </td>
                           ))}
 
@@ -774,7 +821,7 @@ function isProjectionColumn(label: string, source?: string): boolean {
                                   : "transparent",
                               }}
                             >
-                              {formatCell(getCell(s.valeurs, it))}
+                              {formatCell(getCell(s.valeurs, it),showDecimals, payload?.format)}
                             </td>
                           ))}
                         </tr>
@@ -862,7 +909,17 @@ function isProjectionColumn(label: string, source?: string): boolean {
                                 : "transparent",
                             }}
                           >
-                            {formatCell(cellValue)}
+                            {(() => {
+                              const raw = getCell(row.valeurs, it);
+                              const num = parseFloat(String(raw).replace(",", "."));
+                              const isNum = !isNaN(num) && raw !== "";
+
+                              if (isNum) {
+                                return showDecimals ? num.toFixed(2) : Math.round(num).toString();
+                              }
+                              return formatCell(raw);
+                            })()}
+
                           </td>
                         );
                       })}

@@ -299,7 +299,8 @@ class ImportExcelView(APIView):
                     "%" in titre_lower
                     or "pourcentage" in titre_lower
                     or "proportion" in titre_lower
-                    or "porportion" in titre_lower  # pour ton cas
+                    or "porportion" in titre_lower
+                    or "taux" in titre_lower   # pour ton cas
                 )
 
 
@@ -471,7 +472,8 @@ class ImportExcelView(APIView):
                 "%" in titre_lower
                 or "pourcentage" in titre_lower
                 or "proportion" in titre_lower
-                or "porportion" in titre_lower  # pour ton cas
+                or "porportion" in titre_lower 
+                or "Taux" in titre_lower # pour ton cas
             )
 
 
@@ -598,7 +600,7 @@ class TableauDetailStructureView(APIView):
                 return d.statut  # ex: "N/D", "NS"
 
             titre_lower = (d.tableau.titre or "").lower()
-            titre_contient_pourcentage = ("%" in titre_lower) or ("pourcentage" in titre_lower) or ("Porportion" in titre_lower) 
+            titre_contient_pourcentage = ("%" in titre_lower) or ("pourcentage" in titre_lower) or ("Porportion" in titre_lower) or("taux" in titre_lower)   
 
             unite = d.unite or ""
             val = d.valeur

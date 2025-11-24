@@ -1,11 +1,20 @@
 import axios from "axios";
 
-// 🔹 Auto-détection selon le domaine actuel
-const isProd = window.location.hostname === "102.216.27.135";
+// 🔹 Détection automatique de l'environnement
+const host = window.location.hostname;
 
-const baseURL = isProd
-  ? "http://102.216.27.135:8000/api" // ✅ backend public accessible sur Internet
-  : "http://172.16.67.25:8000/api";  // ✅ backend interne (réseau bureau à distance)
+let baseURL = "";
+
+if (host === "102.216.27.135") {
+  // 🌍 Production (serveur public)
+  baseURL = "http://102.216.27.135:8000/api";
+} else if (host.startsWith("172.") || host.startsWith("192.")) {
+  // 🏢 Réseau interne (bureau à distance)
+  baseURL = "http://172.16.67.25:8000/api";
+} else {
+  // 💻 Machine locale
+  baseURL = "http://127.0.0.1:8000/api";
+}
 
 const axiosInstance = axios.create({
   baseURL,
@@ -13,7 +22,7 @@ const axiosInstance = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
-// ✅ Intercepteur : ajout du token
+// ✅ Intercepteurs inchangés
 axiosInstance.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem("access");
@@ -23,7 +32,6 @@ axiosInstance.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// ✅ Gestion du refresh token
 axiosInstance.interceptors.response.use(
   (response) => response,
   async (error) => {
