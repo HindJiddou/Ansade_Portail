@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import axios from "axios";
+import axioInstance from "../utils/axiosInstance";
 import { useNavigate } from "react-router-dom";
 
 const LoginPage: React.FC = () => {
@@ -11,7 +11,7 @@ const LoginPage: React.FC = () => {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const response = await axios.post("http://127.0.0.1:8000/api/login/", {
+      const response = await axioInstance.post("http://102.216.27.135:8000/api/login/", {
         email,
         password,
       });
@@ -82,7 +82,7 @@ const LoginPage: React.FC = () => {
             OPEN DATA
           </a>
           <a
-            href="http://127.0.0.1:8000/admin/"
+            href="http://102.216.27.135:8000/admin/" 
             className="block hover:underline"
           >
             ADMIN

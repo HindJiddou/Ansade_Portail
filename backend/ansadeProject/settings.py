@@ -25,7 +25,8 @@ SECRET_KEY = 'django-insecure-v##&4@qms&$+&h(q6l5pw6+r0ht7a(z-6e72ln$i=cqs&&!+y2
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS =  ['172.16.67.25', 'localhost', '127.0.0.1']
+ALLOWED_HOSTS = ['172.16.67.25', 'localhost', '127.0.0.1', '102.216.27.135']
+
 
 
 # Application definition
@@ -155,11 +156,24 @@ STATICFILES_DIRS = [
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+# CORS_ALLOW_ALL_ORIGINS = False
+# CORS_ALLOWED_ORIGINS = [
+#     "http://0.0.0.0:5173",
+#     # "http://localhost:5173",
+#     # "http://127.0.0.1:5173",  # Port de Vite
+# ]
+# # --- CORS configuration ---
 CORS_ALLOW_ALL_ORIGINS = False
+
 CORS_ALLOWED_ORIGINS = [
-    # "http://0.0.0.0:5173",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",  # Port de Vite
+    "http://102.216.27.135:5173",  # ✅ ton site React public
+    "http://localhost:5173",       # ✅ pour tes tests en local
+    "http://127.0.0.1:5173",       # ✅ aussi pour tests locaux
 ]
+
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = ["*"]
+CORS_ALLOW_METHODS = ["DELETE", "GET", "OPTIONS", "PATCH", "POST", "PUT"]
+
 
 # hbjh

@@ -33,12 +33,13 @@ class CustomUserAdmin(BaseUserAdmin):
 class CategorieAdmin(admin.ModelAdmin):
     list_display = ('id', 'nom_cat')
     search_fields = ('nom_cat',)
-
+    list_display_links = ('nom_cat',) 
 @admin.register(Theme)
 class ThemeAdmin(admin.ModelAdmin):
     list_display = ('id', 'nom_theme', 'categorie')
     search_fields = ('nom_theme',)
     list_filter = ('categorie',)
+    list_display_links = ('nom_theme',) 
 
 @admin.register(Tableau)
 class TableauAdmin(admin.ModelAdmin):
