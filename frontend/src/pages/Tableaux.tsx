@@ -4,6 +4,7 @@ import axios from "axios";
 import { motion } from "framer-motion";
 import BackButton from "./BackButton";
 import { FaSearch, FaRegEye, FaDownload, FaTable } from "react-icons/fa";
+import * as XLSX from "xlsx"; // 👉 AJOUT EXPORT
 
 /* ======================
    Interfaces TypeScript
@@ -11,6 +12,7 @@ import { FaSearch, FaRegEye, FaDownload, FaTable } from "react-icons/fa";
 interface Tableau {
   id: number;
   titre: string;
+  nom_feuille: string; // 👉 AJOUT EXPORT
   theme: number;
 }
 
@@ -40,7 +42,7 @@ const extraireTitre = (titre: string) => {
    Composant principal
 ====================== */
 export default function Tableaux() {
-  const { id } = useParams(); // ID du thème
+  const { id } = useParams();
   const navigate = useNavigate();
 
   const [tableaux, setTableaux] = useState<Tableau[]>([]);
@@ -86,13 +88,67 @@ export default function Tableaux() {
     if (match) navigate(`/tableaux/${match.id}`);
   };
 
-  /* === Télécharger PDF ou Excel === */
+  /* === 👉 Export Backend : tous les tableaux du thème === */
+  const handleExportThemeBackend = () => {
+    const link = document.createElement("a");
+    link.href = `/api/export/theme/${id}/`;
+    link.setAttribute("download", "");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  /* === Télécharger PDF ou Excel (un seul tableau) === */
   const handleDownload = (tbl: Tableau, fmt: "pdf" | "xlsx") => {
     const url = `/api/export/tableaux/${tbl.id}/?format=${fmt}`;
-
-    console.log("➡️ Téléchargement:", url);
     window.open(url, "_blank");
     setOpenMenuId(null);
+  };
+
+  /* ================================
+       👉 EXPORTER TOUS LES TABLEAUX
+     ================================ */
+  const handleExportAllTables = async () => {
+    if (!tableaux.length) {
+      alert("Aucun tableau à exporter.");
+      return;
+    }
+
+    const workbook = XLSX.utils.book_new();
+
+    for (const tbl of tableaux) {
+      try {
+        const url = `/api/export/tableaux/${tbl.id}/?format=xlsx`;
+        const res = await fetch(url);
+
+        const blob = await res.blob();
+        const arrayBuffer = await blob.arrayBuffer();
+
+        const wb = XLSX.read(arrayBuffer, { type: "array" });
+
+        // Première feuille du fichier exporté
+        const sheetName = wb.SheetNames[0];
+        const sheet = wb.Sheets[sheetName];
+
+        // ✔ Utiliser nom_feuille
+        let nomFeuille = tbl.nom_feuille || tbl.titre;
+
+        // Nettoyage obligatoire (Excel interdit certains caractères)
+        nomFeuille = nomFeuille
+          .replace(/[/\\?*\[\]:]/g, "_")
+          .trim()
+          .slice(0, 31); // Excel = max 31 caractères
+
+        XLSX.utils.book_append_sheet(workbook, sheet, nomFeuille);
+      } catch (err) {
+        console.error("Erreur export tableau", tbl.id, err);
+      }
+    }
+
+    const nomFichier = `Theme_${themeMeta?.nom_theme || id}.xlsx`
+      .replace(/\s+/g, "_");
+
+    XLSX.writeFile(workbook, nomFichier);
   };
 
   /* ======================
@@ -107,9 +163,24 @@ export default function Tableaux() {
 
       {/* === En-tête === */}
       <header className="text-center mt-6 mb-6">
-        <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-3">
-          <span className="text-emerald-700">{themeMeta?.nom_theme || "..."}</span>
+
+        <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-3 flex items-center justify-center gap-4">
+
+          <span className="text-emerald-700">
+            {themeMeta?.nom_theme || "..."}
+          </span>
+
+          <button
+            onClick={handleExportThemeBackend}
+            className="px-3 py-1 text-sm border border-emerald-300 rounded-md bg-white text-slate-700 hover:bg-emerald-50 flex items-center gap-2"
+          >
+            ⬇️ Exporter tout le theme
+          </button>
+
         </h1>
+
+
+
         <p className="text-gray-600 text-lg leading-relaxed max-w-2xl mx-auto">
           Consultez et exportez les tableaux normalisés liés à ce thème (PDF ou Excel).
         </p>
@@ -161,7 +232,7 @@ export default function Tableaux() {
               <div className="flex-1 min-w-0">
                 <h2
                   className="text-lg font-semibold text-slate-900 leading-snug truncate"
-                  title={titreCourt}  // ✅ tooltip natif
+                  title={titreCourt}
                 >
                   {titreCourt}
                 </h2>
@@ -174,7 +245,6 @@ export default function Tableaux() {
 
               {/* Actions */}
               <div className="relative flex items-center gap-2">
-                {/* 🔍 Voir le détail */}
                 <button
                   onClick={() => navigate(`/tableaux/${t.id}`)}
                   className="inline-flex items-center justify-center w-9 h-9 rounded-md border border-slate-200 bg-white
@@ -184,17 +254,6 @@ export default function Tableaux() {
                   <FaRegEye className="text-base" />
                 </button>
 
-                {/* ⬇️ Télécharger */}
-                {/* <button
-                  onClick={() => setOpenMenuId((cur) => (cur === t.id ? null : t.id))}
-                  className="inline-flex items-center justify-center w-9 h-9 rounded-md border border-slate-200 bg-white
-                             hover:bg-slate-50 text-slate-700 hover:text-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-                  title="Télécharger"
-                >
-                  <FaDownload className="text-base" />
-                </button> */}
-
-                {/* Menu de téléchargement */}
                 {openMenuId === t.id && (
                   <div
                     className="absolute right-0 top-10 z-20 w-36 rounded-md border border-slate-200 bg-white shadow-lg p-1"

@@ -309,7 +309,7 @@ class ImportExcelView(APIView):
                     titre=titre,
                     theme_id=id_theme,
                     source=source,
-                    etiquette_ligne="Indicateur"
+                    etiquette_ligne=""
                 )
                 # ✅ Collecte des notes de bas de page (ex: "* Données RGE 2024")
                 notes_etoiles = {}
@@ -1510,3 +1510,134 @@ class SourceSuggestAPIView(APIView):
         )
 
         return Response(list(matches))
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
+from io import BytesIO
+import pandas as pd
+from openpyxl import Workbook
+from .models import Theme, Tableau, Donnees
+
+
+class ExportThemeAPIView(APIView):
+    """
+    Exporte tous les tableaux d'un thème dans un seul fichier Excel.
+    Chaque tableau = une feuille Excel utilisant tableau.nom_feuille.
+    """
+
+    def get(self, request, theme_id):
+        # 🔍 Vérifier le thème
+        theme = get_object_or_404(Theme, pk=theme_id)
+
+        # 🔍 Récupérer tous les tableaux du thème
+        tableaux = Tableau.objects.filter(theme_id=theme_id).order_by("id")
+
+        if not tableaux.exists():
+            return Response(
+                {"error": "Aucun tableau trouvé pour ce thème."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # 🟩 Créer un fichier Excel vide
+        output = BytesIO()
+        wb = Workbook()
+        default_sheet = wb.active
+        wb.remove(default_sheet)   # supprimer la feuille inutile
+
+        # 🟩 Pour chaque tableau, créer une feuille
+        for tbl in tableaux:
+            build_sheet_old_format(wb, tbl)
+
+        # 🟩 Sauvegarder l'Excel
+        wb.save(output)
+        output.seek(0)
+
+        # 🟩 Réponse HTTP
+        safe_name = (
+            f"Theme_{theme.nom_theme}"
+            .replace(" ", "_")
+            .replace("/", "_")
+        )
+
+        response = HttpResponse(
+            output.read(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{safe_name}.xlsx"'
+        return response
+from openpyxl.styles import Font
+from .models import LigneIndicateur, Donnees
+
+
+def build_sheet_old_format(wb, tableau):
+
+    # 1️⃣ Lignes dans l'ordre correct
+    lignes = (
+        LigneIndicateur.objects.filter(tableau=tableau)
+        .order_by("ordre", "id")
+    )
+
+    # 2️⃣ Colonnes dans l'ordre EXACT d'apparition
+    donnees_cols = (
+        Donnees.objects.filter(tableau=tableau, ligne__isnull=False)
+        .order_by("id")
+        .values("colonne")
+    )
+
+    colonnes = []
+    for d in donnees_cols:
+        c = d["colonne"]
+        if c not in colonnes:
+            colonnes.append(c)
+
+    # 3️⃣ Nom de la feuille (max 31 caractères)
+    nom_feuille = (tableau.nom_feuille or tableau.titre)[:31]
+    ws = wb.create_sheet(title=nom_feuille)
+
+    # ----------------------------------------------
+    # A) Titre
+    # ----------------------------------------------
+    ws.cell(row=1, column=1, value=tableau.titre).font = Font(bold=True, size=13)
+
+    # ----------------------------------------------
+    # B) En-têtes colonnes
+    # ----------------------------------------------
+    ws.cell(row=2, column=1, value=tableau.etiquette_ligne or "Indicateur").font = Font(bold=True)
+
+    for i, col in enumerate(colonnes, start=2):
+        ws.cell(row=2, column=i, value=col).font = Font(bold=True)
+
+    # ----------------------------------------------
+    # C) Lignes + valeurs
+    # ----------------------------------------------
+    row_excel = 3
+
+    for ligne in lignes:
+
+        ws.cell(row=row_excel, column=1, value=ligne.label)
+
+        for ci, col_name in enumerate(colonnes, start=2):
+
+            d = Donnees.objects.filter(
+                tableau=tableau,
+                ligne=ligne,
+                colonne=col_name
+            ).first()
+
+            if d and d.valeur is not None:
+                ws.cell(row=row_excel, column=ci, value=d.valeur)
+            else:
+                ws.cell(row=row_excel, column=ci, value="")
+
+        row_excel += 1
+
+    # ----------------------------------------------
+    # D) Source (UNE SEULE FOIS)
+    # ----------------------------------------------
+    if tableau.source:
+        ws.cell(row=row_excel + 1, column=1, value=f"Source : {tableau.source}").font = Font(italic=True)
+
+    return ws

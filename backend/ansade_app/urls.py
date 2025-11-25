@@ -6,7 +6,7 @@ from .views import (
     TableauFiltresOptionsView, TableauFiltreStructureView, TableauAnalyseAPIView,
     CarteParTableauAPIView, ListeSourcesAPIView, TableauxParSourceAPIView,
     RechercheGlobaleAPIView, UserInfoAPIView, CustomLoginView,
-    ExportTableauAPIView,GroupedSourcesAutoAPIView,TableauUpdateMetaAPIView,SourceSuggestAPIView,
+    ExportTableauAPIView,GroupedSourcesAutoAPIView,TableauUpdateMetaAPIView,SourceSuggestAPIView,ExportThemeAPIView,
 )
 
 router = DefaultRouter()
@@ -38,6 +38,9 @@ urlpatterns = [
     path("sources/grouped-auto/", GroupedSourcesAutoAPIView.as_view(), name="grouped-sources-auto"),
     path("tableaux/<int:tableau_id>/update-meta/", TableauUpdateMetaAPIView.as_view(),),
     path("tableaux/sources/suggest/", SourceSuggestAPIView.as_view()),
+    path("export/theme/<int:theme_id>/", ExportThemeAPIView.as_view(), name="export-theme"),
+
+
 
 
 
