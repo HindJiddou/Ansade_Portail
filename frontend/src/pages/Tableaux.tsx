@@ -90,14 +90,8 @@ export default function Tableaux() {
 
   /* === 👉 Export Backend : tous les tableaux du thème === */
   const handleExportThemeBackend = () => {
-    const link = document.createElement("a");
-    link.href = `/api/export/theme/${id}/`;
-    link.setAttribute("download", "");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    window.open(`/api/export/theme/${id}/`, "_blank");
   };
-
   /* === Télécharger PDF ou Excel (un seul tableau) === */
   const handleDownload = (tbl: Tableau, fmt: "pdf" | "xlsx") => {
     const url = `/api/export/tableaux/${tbl.id}/?format=${fmt}`;
