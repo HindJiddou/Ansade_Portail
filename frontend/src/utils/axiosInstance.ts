@@ -1,26 +1,36 @@
 import axios from "axios";
 
-// 🔹 Détection automatique de l'environnement
-const host = window.location.hostname;
+// 🔹 MODE DEV → TOUJOURS LOCAL
+const isDev = import.meta.env.MODE === "development";
 
 let baseURL = "";
 
-if (host === "102.216.27.135") {
-  // 🌍 Production (serveur public)
-  baseURL = "http://102.216.27.135:8000/api";
-} else if (host.startsWith("172.") || host.startsWith("192.")) {
-  // 🏢 Réseau interne (bureau à distance)
-  baseURL = "http://172.16.67.25:8000/api";
-} else {
-  // 💻 Machine locale
+if (isDev) {
+  console.log("🔥 Mode DEV détecté → backend local utilisé");
   baseURL = "http://127.0.0.1:8000/api";
 }
+else {
+  const host = window.location.hostname;
+
+  if (host === "102.216.27.135") {
+    baseURL = "http://102.216.27.135:8000/api"; // Production
+  } 
+  else if (host.startsWith("172.") || host.startsWith("192.")) {
+    baseURL = "http://172.16.67.25:8000/api"; // Bureau
+  }
+  else {
+    baseURL = "http://127.0.0.1:8000/api"; // fallback
+  }
+}
+
+console.log("📌 BaseURL utilisée =", baseURL);
 
 const axiosInstance = axios.create({
   baseURL,
   timeout: 0,
   headers: { "Content-Type": "application/json" },
 });
+
 
 // ✅ Intercepteurs inchangés
 axiosInstance.interceptors.request.use(

@@ -63,6 +63,7 @@ class Tableau(models.Model):
     theme = models.ForeignKey(Theme, on_delete=models.CASCADE)
     source = models.TextField(blank=True, null=True)
     date_verrouillage = models.DateField(null=True, blank=True)
+    afficher_decimales = models.BooleanField(default=True)  
 
 
     def __str__(self):

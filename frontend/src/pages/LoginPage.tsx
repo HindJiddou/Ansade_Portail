@@ -11,10 +11,11 @@ const LoginPage: React.FC = () => {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const response = await axioInstance.post("http://102.216.27.135:8000/api/login/", {
+      const response = await axioInstance.post("/login/", {
         email,
         password,
       });
+
 
       // ✅ On récupère access + refresh + user
       const { access, refresh, user } = response.data;

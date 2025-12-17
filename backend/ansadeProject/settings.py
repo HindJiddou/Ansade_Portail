@@ -39,9 +39,10 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
-    'ansade_app',
     'corsheaders',
     'django_extensions',
+    'ansade_app.apps.AnsadeAppConfig',
+
 ]
 
 MIDDLEWARE = [

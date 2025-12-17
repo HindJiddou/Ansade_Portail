@@ -55,6 +55,7 @@ type Meta = {
 type FilterOptions = { lignes: string[]; colonnes: string[] };
 
 /* ---------- Const ---------- */
+
 const COL_SPACING_X = 1;
 const LEFT1_W = "clamp(180px, 22vw, 290px)";
 const LEFT2_W = "clamp(140px, 18vw, 220px)";
@@ -93,26 +94,55 @@ function getCell(vals: Valeurs | undefined, item: ColonnesOrderItem): string {
   );
 }
 
-function formatCell(raw?: string | null, showDecimals = false, format?: "ancien" | "nouveau"): string {
+function formatCell(
+  raw?: string | null,
+  titreLower?: string,
+  showDecimals?: boolean
+): string {
   if (!raw) return "NA";
+
   const s = String(raw).trim();
   if (!s) return "NA";
 
-  // Garder les pourcentages tels quels
+  // ✔ Laisser les pourcentages tels quels
   if (s.includes("%")) return s;
 
-  // Conversion en nombre
+  // ✔ Conversion vers nombre
   const num = parseFloat(s.replace(/\s/g, "").replace(",", "."));
   if (isNaN(num)) return s;
 
-  // ✅ Afficher deux décimales si le bouton est activé
-  if (showDecimals) {
-    return num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, " "); // ajoute espaces entre milliers
+  // ✔ Détection tableaux d’effectifs
+  const estTableauDeNombres =
+    titreLower?.includes("nombre") ||
+    titreLower?.includes("effectif") ||
+    titreLower?.includes("effectifs") ||
+    titreLower?.includes("quantité");
+
+  // ✔ Cas tableaux d’effectifs → PAS DE DÉCIMALES
+  if (estTableauDeNombres) {
+    return num.toLocaleString("fr-FR", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    });
   }
 
-  // ✅ Sinon arrondir sans décimales avec espaces
-  return Math.round(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  // ✔ Tous les autres tableaux
+  if (showDecimals) {
+    // → afficher 2 décimales
+    return num.toLocaleString("fr-FR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).replace(",", ".");
+  } else {
+    // → arrondi entiers (affichage simple)
+    return num.toLocaleString("fr-FR", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    });
+  }
 }
+
+
 
 
 
@@ -142,7 +172,23 @@ function Toolbar({
       {(user?.is_superuser ||
         (user?.is_chef && user?.categorie?.id === payload?.meta?.categorie_id)) && (
         <button
-          onClick={() => setShowDecimals(!showDecimals)}
+          onClick={async () => {
+            const newValue = !showDecimals;
+
+            try {
+              await axiosInstance.post(`/tableaux/${tableId}/toggle-decimals/`, {
+                afficher_decimales: newValue,
+              });
+
+              // mettre à jour frontend
+              setShowDecimals(newValue);
+            } catch (err) {
+              console.error("Erreur toggle:", err);
+              alert("Impossible de modifier la préférence décimales");
+            }
+        }}
+
+
           className={`inline-flex items-center gap-2 rounded-lg border text-sm font-medium shadow-sm transition px-3 py-2
             ${
               showDecimals
@@ -151,6 +197,8 @@ function Toolbar({
             }`}
         >
           {showDecimals ? "Masquer décimales" : "Afficher décimales"}
+
+
         </button>
       )}
 
@@ -211,7 +259,8 @@ function FilterModal({
   const [selectedLignes, setSelectedLignes] = useState<string[]>([]);
   const [selectedCols, setSelectedCols] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  
+
+
 
   useEffect(() => {
     if (!show) return;
@@ -314,7 +363,11 @@ function FilterModal({
 /* ---------- Page principale ---------- */
 export default function TableauDetail() {
   const { id } = useParams();
-  const tableId = `tableau-${id}`;
+  if (!id) {
+  return <div>Tableau introuvable</div>;
+}
+
+  const tableId = id;
   const [payload, setPayload] = useState<Payload | null>(null);
   const user = JSON.parse(localStorage.getItem("user") || "null");
   console.log("USER =", user);
@@ -350,6 +403,14 @@ export default function TableauDetail() {
 
 
 
+  // 🔥 Charger la préférence globale depuis le backend
+  useEffect(() => {
+    axiosInstance.get(`/tableaux/${id}/structure/`)
+      .then((res) => {
+        setShowDecimals(res.data.meta?.afficher_decimales ?? true);
+      })
+      .catch(() => console.warn("Impossible de charger la préférence décimales"));
+  }, [id]);
 
   useEffect(() => {
     let alive = true;
@@ -363,7 +424,7 @@ export default function TableauDetail() {
         setMeta({
           titre: m.titre ?? "",
           source: m.source ?? "",
-          etiquette_ligne: m.etiquette_ligne ?? "Indicateur",
+          etiquette_ligne: m.etiquette_ligne ?? "",
         });
         const visibles = detectVisibleStatuts(data.data || [], data.statuts || []);
         setVisibleStatuts(visibles);
@@ -598,7 +659,7 @@ function isProjectionColumn(label: string, source?: string): boolean {
 
  
         <Toolbar
-          tableId={tableId}
+          tableId={id} 
           title={meta.titre}
           onFilter={() => setShowFilter(true)}
           user={user}
@@ -653,7 +714,7 @@ function isProjectionColumn(label: string, source?: string): boolean {
                   className={`${thBase} text-left sticky top-0 left-0 z-40`}
                   rowSpan={singleHeaderRow ? 1 : 2}
                 >
-                  {meta.etiquette_ligne || "Indicateur"}
+                  {meta.etiquette_ligne || ""}
                 </th>
 
                
@@ -778,7 +839,12 @@ function isProjectionColumn(label: string, source?: string): boolean {
                                   : "transparent",
                               }}
                             >
-                              {formatCell(getCell(row.valeurs, it),showDecimals, payload?.format)}
+                              {formatCell(
+                                getCell(row.valeurs, it),
+                                meta.titre.toLowerCase(),
+                                showDecimals
+                            )}
+
                             </td>
                           ))}
 
@@ -821,7 +887,12 @@ function isProjectionColumn(label: string, source?: string): boolean {
                                   : "transparent",
                               }}
                             >
-                              {formatCell(getCell(s.valeurs, it),showDecimals, payload?.format)}
+                              {formatCell(
+                                getCell(s.valeurs, it),
+                                meta.titre.toLowerCase(),
+                                showDecimals
+                            )}
+
                             </td>
                           ))}
                         </tr>
@@ -909,16 +980,12 @@ function isProjectionColumn(label: string, source?: string): boolean {
                                 : "transparent",
                             }}
                           >
-                            {(() => {
-                              const raw = getCell(row.valeurs, it);
-                              const num = parseFloat(String(raw).replace(",", "."));
-                              const isNum = !isNaN(num) && raw !== "";
+                            {formatCell(
+                              getCell(row.valeurs, it),
+                              meta.titre.toLowerCase(),
+                              showDecimals
+                          )}
 
-                              if (isNum) {
-                                return showDecimals ? num.toFixed(2) : Math.round(num).toString();
-                              }
-                              return formatCell(raw);
-                            })()}
 
                           </td>
                         );

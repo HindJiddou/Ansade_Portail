@@ -14,7 +14,8 @@ const MainLayout: React.FC = () => {
       {!isLoginPage && <Header />}
 
       {/* Contenu principal */}
-      <main className="flex-grow pt-24 px-6 bg-white">
+      <main className="flex-grow pt-20 px-4 md:pt-24 md:px-6 bg-white">
+
         <Outlet />
       </main>
 

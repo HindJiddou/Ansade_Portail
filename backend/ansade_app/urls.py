@@ -7,6 +7,7 @@ from .views import (
     CarteParTableauAPIView, ListeSourcesAPIView, TableauxParSourceAPIView,
     RechercheGlobaleAPIView, UserInfoAPIView, CustomLoginView,
     ExportTableauAPIView,GroupedSourcesAutoAPIView,TableauUpdateMetaAPIView,SourceSuggestAPIView,ExportThemeAPIView,
+    TableauToggleDecimalsAPIView,
 )
 
 router = DefaultRouter()
@@ -39,6 +40,8 @@ urlpatterns = [
     path("tableaux/<int:tableau_id>/update-meta/", TableauUpdateMetaAPIView.as_view(),),
     path("tableaux/sources/suggest/", SourceSuggestAPIView.as_view()),
     path("export/theme/<int:theme_id>/", ExportThemeAPIView.as_view(), name="export-theme"),
+    path("tableaux/<int:tableau_id>/toggle-decimals/", TableauToggleDecimalsAPIView.as_view()),
+
 
 
 

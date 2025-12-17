@@ -176,6 +176,56 @@ class RechercheGlobaleAPIView(APIView):
 
         return Response(results)
 
+import re
+
+def extraire_annee(col):
+    """
+    Extrait l’année d’un libellé de colonne.
+    Prend la première année rencontrée : 2019, 2020, 2012, 2019/2020, etc.
+    """
+    match = re.search(r'(\d{4})', str(col))
+    if match:
+        return int(match.group(1))
+    return None
+
+def trier_tableau_par_colonnes(lignes, start_index):
+    """
+    Tri réel des colonnes année dans un tableau :
+    - lignes = liste des lignes (liste de listes)
+    - start_index = index où commencent les colonnes années
+    Retourne : nouvelles_lignes (colonnes réellement déplacées)
+    """
+
+    # En-tête original
+    headers = lignes[0]
+
+    # Séparer avant + colonnes année
+    colonnes_autres = list(range(start_index))
+    colonnes_annee = []
+
+    for idx in range(start_index, len(headers)):
+        an = extraire_annee(headers[idx])
+        if an is not None:
+            colonnes_annee.append((idx, an))
+        else:
+            colonnes_autres.append(idx)
+
+    # Tri des colonnes année
+    colonnes_annee_tries = [idx for idx, _ in sorted(colonnes_annee, key=lambda x: x[1])]
+
+    # Nouvel ordre complet des colonnes
+    nouvel_ordre = colonnes_autres + colonnes_annee_tries
+
+    # Reconstruire toutes les lignes
+    nouvelles_lignes = []
+    for row in lignes:
+        new_row = []
+        for idx in nouvel_ordre:
+            new_row.append(row[idx] if idx < len(row) else "")
+        nouvelles_lignes.append(new_row)
+
+    return nouvelles_lignes
+
 
 class ImportExcelView(APIView):
     parser_classes = [MultiPartParser]
@@ -457,6 +507,14 @@ class ImportExcelView(APIView):
 
             headers_old = lignes[data_start] if lignes[data_start] else []
             etiquette_value = str(headers_old[0]).strip() if headers_old else ""
+            # ==== TRI COMPLET DES COLONNES (ANCIEN FORMAT) ====
+            # On insère l'en-tête dans "lignes" pour le tri
+            tableau_a_trier = [headers_old] + lignes[data_start+1:]
+            tableau_trie = trier_tableau_par_colonnes(tableau_a_trier, 1)
+
+            # Récupération
+            headers_old = tableau_trie[0]
+            data_rows = tableau_trie[1:]
 
             tableau = Tableau.objects.create(
                 nom_feuille=feuille,
@@ -466,7 +524,7 @@ class ImportExcelView(APIView):
                 etiquette_ligne=etiquette_value
             )
 
-            data_rows = lignes[data_start + 1:]
+            
             titre_lower = titre.lower()
             is_pourcentage = (
                 "%" in titre_lower
@@ -575,7 +633,7 @@ class TableauDetailStructureView(APIView):
                 "colonnes_order": [],
                 "data": [],
                 "has_sous_indicateurs": False,
-                "meta": {"titre": "", "source": "", "etiquette_ligne": ""},
+                "meta": {"titre": "", "source": "", "etiquette_ligne": "","afficher_decimales": tableau.afficher_decimales,"tableau_id": tableau.id, },
                 "format": None,
                 "statuts": [],
             })
@@ -593,27 +651,36 @@ class TableauDetailStructureView(APIView):
 
 
         def format_value(d):
-            """Formate une donnée complète (valeur, unité, statut, note)."""
+            # 1) cellule vide
             if d.valeur is None and not d.statut:
-                return ""  # cellule vide
+                return ""
+
+            # 2) statut texte (ex: N/D)
             if d.statut:
-                return d.statut  # ex: "N/D", "NS"
+                return d.statut
 
-            titre_lower = (d.tableau.titre or "").lower()
-            titre_contient_pourcentage = ("%" in titre_lower) or ("pourcentage" in titre_lower) or ("Porportion" in titre_lower) or("taux" in titre_lower)   
+            titre = (d.tableau.titre or "").lower()
+            titre = " ".join(titre.split())
 
-            unite = d.unite or ""
+            is_pct = d.unite == "%"
+            is_nombre = ("nombre" in titre) or ("effectif" in titre) or ("quantité" in titre)
+            dec = d.tableau.afficher_decimales  # <<< UTILISÉ ICI
+
             val = d.valeur
 
-            if unite == "%":
-                val = (val * 100) if abs(val) <= 1.5 else val
-                s = f"{val:.2f}"
-                valeur_str = s if titre_contient_pourcentage else f"{s}%"
-            else:
-                valeur_str = f"{val:.2f}".rstrip('0').rstrip('.')
+            # 3) Pourcentages
+            if is_pct:
+                # remettre à 100 si Excel a stocké 0.15 pour 15%
+                val = val * 100 if abs(val) <= 1.5 else val
+                return f"{val:.2f}" if dec else f"{int(round(val))}"
 
-            # 👉 ne pas ajouter d'étoile ici, juste retourner la valeur
-            return valeur_str
+            # 4) Tableaux de type "nombre / effectif"
+            if is_nombre:
+                return f"{int(round(val))}"
+
+            # 5) Format général
+            return f"{val:.2f}" if dec else f"{int(round(val))}"
+
 
 
 
@@ -745,6 +812,8 @@ class TableauDetailStructureView(APIView):
                         tableau.date_verrouillage.strftime("%Y-%m-%d")
                         if tableau.date_verrouillage else None
                     ),
+                    "afficher_decimales": tableau.afficher_decimales,
+                    "tableau_id": tableau.id, 
                 },
 
                 "format": "nouveau",
@@ -881,6 +950,8 @@ class TableauDetailStructureView(APIView):
                         tableau.date_verrouillage.strftime("%Y-%m-%d")
                         if tableau.date_verrouillage else None
                     ),
+                    "afficher_decimales": tableau.afficher_decimales,
+                    "tableau_id": tableau.id, 
                 },
             "format": "ancien",
             "notes": notes_text,  
@@ -1295,10 +1366,7 @@ import re
 
 class GroupedSourcesAutoAPIView(APIView):
     """
-    Regroupe automatiquement les sources par logique thématique :
-    - Les groupes principaux (RGPH, EDSM, MICS, EPCV, etc.)
-    - Les synonymes (BCM = Banque Centrale de la Mauritanie, etc.)
-    - Les autres sources autonomes (chaque source = groupe)
+    Regroupe automatiquement les sources par logique thématique
     """
 
     SYNONYMS = {
@@ -1310,6 +1378,7 @@ class GroupedSourcesAutoAPIView(APIView):
         "ICC": ["icc"],
         "PIB": ["pib"],
         "INPC": ["inpc"],
+        "CN": ["cn"],
         "SNIM": ["snim"],
         "SNDE": ["snde"],
         "SOMELEC": ["somelec"],
@@ -1323,8 +1392,31 @@ class GroupedSourcesAutoAPIView(APIView):
         "RGPH et EDSM": ["rgph", "edsm"],
     }
 
+    # ✅ ORDRE CONTRÔLÉ (au niveau de la classe)
+    ORDER_ANSADE = [
+        "RGPH",
+        "RGPH, MICS et EDSM",
+        "RGPH et EDSM",
+        "EPCV",
+        "MICS",
+        "EDSM",
+        "ICC",
+        "PIB",
+        "INPC",
+        "CN",
+    ]
+
+    ORDER_AUTRES = [
+        "BCM",
+        "SNIM",
+        "SNDE",
+        "SOMELEC",
+        "SAM",
+        "JUSTICE",
+        "DOUANES",
+    ]
+
     def clean_text(self, text):
-        """Nettoyage basique pour comparaison."""
         if not text:
             return ""
         text = text.lower()
@@ -1333,29 +1425,25 @@ class GroupedSourcesAutoAPIView(APIView):
         return text
 
     def detect_group(self, text):
-        """Détecte le groupe thématique principal."""
         txt = self.clean_text(text)
 
-        # Cas combinés (plus précis)
         for combo_name, keywords in self.COMBOS.items():
             if all(k in txt for k in keywords):
                 return combo_name
 
-        # Cas simples et synonymes
         for group, mots in self.SYNONYMS.items():
             if any(m in txt for m in mots):
                 return group
 
-        # Aucun mot-clé → retour de None
         return None
 
     def get(self, request):
         from .models import Tableau
+        from collections import defaultdict
 
         sources = Tableau.objects.values_list("source", flat=True).distinct()
         grouped = defaultdict(list)
 
-        # --- Détection du groupe de chaque source ---
         for src in sources:
             if not src:
                 continue
@@ -1366,49 +1454,33 @@ class GroupedSourcesAutoAPIView(APIView):
             if group:
                 grouped[group].append(cleaned)
             else:
-                # Cas sans correspondance → chaque source devient son propre groupe
                 grouped[cleaned].append(cleaned)
 
-        # --- Nettoyage des doublons ---
         for k, v in grouped.items():
-            grouped[k] = sorted(list(set(v)))
+            grouped[k] = sorted(set(v))
 
-        # --- Répartition en sections principales ---
         structure = {
             "ANSADE": {},
             "AUTRES": {},
         }
 
-        # Groupes à classer sous ANSADE
-        ansade_groups = [
-            "RGPH, MICS et EDSM",
-            "RGPH et EDSM",
-            "RGPH",
-            "EPCV",
-            "MICS",
-            "EDSM",
-            "ICC",
-            "PIB",
-            "INPC",
-        ]
+        # ✅ ANSADE : ordre contrôlé
+        for key in self.ORDER_ANSADE:
+            if key in grouped:
+                structure["ANSADE"][key] = grouped[key]
 
-        # Groupes à classer sous AUTRES
-        autres_groups = [
-            "BCM", "SNIM", "SNDE", "SOMELEC", "SAM",
-            "JUSTICE", "DOUANES",
-        ]
+        # ✅ AUTRES : ordre contrôlé
+        for key in self.ORDER_AUTRES:
+            if key in grouped:
+                structure["AUTRES"][key] = grouped[key]
 
-        # --- Répartition ---
-        for name, srcs in grouped.items():
-            if name in ansade_groups:
-                structure["ANSADE"][name] = srcs
-            elif name in autres_groups:
-                structure["AUTRES"][name] = srcs
-            else:
-                # Cas : chaque source individuelle
-                structure["AUTRES"][name] = srcs
+        # ✅ Sources restantes
+        for key, srcs in grouped.items():
+            if key not in self.ORDER_ANSADE and key not in self.ORDER_AUTRES:
+                structure["AUTRES"][key] = srcs
 
         return Response(structure)
+
 
         
 class TableauUpdateMetaAPIView(APIView):
@@ -1641,3 +1713,31 @@ def build_sheet_old_format(wb, tableau):
         ws.cell(row=row_excel + 1, column=1, value=f"Source : {tableau.source}").font = Font(italic=True)
 
     return ws
+class TableauToggleDecimalsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, tableau_id):
+        try:
+            tableau = Tableau.objects.get(id=tableau_id)
+        except Tableau.DoesNotExist:
+            return Response({"error": "Tableau introuvable"}, status=404)
+
+        # 🔒 Autorisation
+        user = request.user
+        if not user.is_superuser:
+            if not (user.is_chef and user.categorie_id == tableau.theme.categorie_id):
+                return Response({"error": "Non autorisé"}, status=403)
+
+        # Nouvelle valeur reçue
+        new_value = request.data.get("afficher_decimales")
+
+        if isinstance(new_value, str):
+            new_value = new_value.lower() in ["true", "1", "yes"]
+
+        tableau.afficher_decimales = new_value
+        tableau.save()
+
+        return Response({
+            "message": "Préférence mise à jour",
+            "afficher_decimales": tableau.afficher_decimales
+        })
