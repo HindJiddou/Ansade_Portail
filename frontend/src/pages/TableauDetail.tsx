@@ -132,7 +132,7 @@ function formatCell(
     return num.toLocaleString("fr-FR", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
-    }).replace(",", ".");
+    }).replace(".", ",");
   } else {
     // → arrondi entiers (affichage simple)
     return num.toLocaleString("fr-FR", {

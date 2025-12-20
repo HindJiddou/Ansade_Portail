@@ -90,7 +90,7 @@ export default function Themes() {
         </h1>
         <p className="text-gray-600 text-lg leading-relaxed max-w-2xl mx-auto">
           Choisissez un <span className="font-medium">thème</span> pour consulter
-          les tableaux et indicateurs associés à ce domaine.
+          les tableaux et indicateurs associés à cette catégorie.
         </p>
       </header>
 

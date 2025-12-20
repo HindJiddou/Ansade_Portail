@@ -60,7 +60,7 @@ export default function Categories() {
           regroupées en <span className="font-medium">quatre grandes catégories</span>.
           Chaque catégorie regroupe plusieurs{" "}
           <span className="font-medium">thèmes</span> couvrant les principaux domaines
-          du développement national.
+          au cœur des enjeux de dévéloppement national.
         </p>
       </header>
 
