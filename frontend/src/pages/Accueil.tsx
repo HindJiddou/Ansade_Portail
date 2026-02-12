@@ -200,7 +200,7 @@ const DomainesCouvertsLiens = () => {
       return theme ? `/themes/${theme.id}` : null;
     }
 
-    if (norm.includes("economie")) return "/categories/4";
+    if (norm.includes("economie")) return "/categories/6";
     if (norm.includes("environnement")) {
       const theme = themes.find((t) =>
         normalize(t.nom_theme).includes("environnement")

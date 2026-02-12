@@ -139,40 +139,77 @@ class TableauxParSourceAPIView(APIView):
 
         return Response(matched)
 
+import unicodedata
+import re
 
- 
+def normalize_text(text: str) -> str:
+    if not text:
+        return ""
+    text = text.lower()
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(c for c in text if unicodedata.category(c) != "Mn")
+    return text
+
+def contains_word_prefix(text: str, word: str) -> bool:
+    """
+    'age' → match 'age', 'age moyen', 'age total'
+    MAIS PAS 'elevage' si mot terminé
+    """
+    pattern = rf"\b{re.escape(word)}"
+    return re.search(pattern, text) is not None
+
+    return re.search(pattern, text) is not None
 class RechercheGlobaleAPIView(APIView):
     def get(self, request):
-        query = request.GET.get('q', '').strip()
-        if not query:
+        raw_query = request.GET.get("q", "")
+        if not raw_query.strip():
             return Response([])
 
+        ends_with_space = raw_query.endswith(" ")
+        query_norm = normalize_text(raw_query.strip())
         results = []
 
-        # Recherche dans Categorie
-        for c in Categorie.objects.filter(nom_cat__icontains=query):
-            results.append({
-                'type': 'Categorie',
-                'id': c.id,
-                'nom': c.nom_cat,
-            })
+        def match(text_norm: str) -> bool:
+            if not text_norm:
+                return False
 
-        # Recherche dans Theme
-        for t in Theme.objects.filter(nom_theme__icontains=query):
-            results.append({
-                'type': 'Theme',
-                'id': t.id,
-                'nom': t.nom_theme,
-            })
+            # 🔴 CAS 1 : PAS d’espace final → recherche large
+            if not ends_with_space:
+                return query_norm in text_norm
 
-        # Recherche dans Tableau
-        for tb in Tableau.objects.filter(Q(titre__icontains=query) | Q(source__icontains=query)):
-            results.append({
-                'type': 'Tableau',
-                'id': tb.id,
-                'nom': tb.titre,
-                'source': tb.source
-            })
+            # 🟢 CAS 2 : espace final → mot terminé
+            return contains_word_prefix(text_norm, query_norm)
+
+        # Categorie
+        for c in Categorie.objects.all():
+            if match(normalize_text(c.nom_cat)):
+                results.append({
+                    "type": "Categorie",
+                    "id": c.id,
+                    "nom": c.nom_cat,
+                })
+
+        # Theme
+        for t in Theme.objects.all():
+            if match(normalize_text(t.nom_theme)):
+                results.append({
+                    "type": "Theme",
+                    "id": t.id,
+                    "nom": t.nom_theme,
+                })
+
+        # Tableau
+        for tb in Tableau.objects.all():
+            titre = normalize_text(tb.titre or "")
+            source = normalize_text(tb.source or "")
+
+            if match(titre) or match(source):
+                results.append({
+                    "type": "Tableau",
+                    "id": tb.id,
+                    "nom": tb.titre,
+                    "source": tb.source,
+                })
 
         return Response(results)
 
@@ -336,6 +373,12 @@ class ImportExcelView(APIView):
                     if header == "" or header.lower() in ["agreg", "agrég", "agrégée"]:
                         continue  # ignorer les colonnes sans nom
                     annee_indexes.append(i)
+                # ✅ Détection % dans les colonnes (NOUVEAU FORMAT)
+                colonnes_pct = {}
+                for idx in annee_indexes:
+                    header_raw = str(first_non_empty_row[idx]).strip()
+                    colonnes_pct[idx] = "%" in header_raw
+
 
 
 
@@ -376,6 +419,8 @@ class ImportExcelView(APIView):
                 for row in lignes[1:]:
                     label_raw = row[des_fr_idx] if len(row) > des_fr_idx else ''
                     label = format_excel_date(label_raw).strip()
+                    label_raw_str = str(label_raw).strip() if label_raw else ""
+                    ligne_est_pct = "%" in label_raw_str
 
                     # ⚠️ Si le label est vide (aucun indicateur), on saute la ligne
                     if not label:
@@ -397,7 +442,8 @@ class ImportExcelView(APIView):
                         label=label,
                         code=code,
                         parent_code=parent_code,
-                        ordre=ordre
+                        ordre=ordre,
+                        est_pourcentage=ligne_est_pct
                     )
 
                     # === Vérifie si la ligne est entièrement vide
@@ -441,16 +487,16 @@ class ImportExcelView(APIView):
                         unite = ""
                         val = raw_val
 
-                        if is_pourcentage or had_percent:
+                        is_pct_cell = (
+                            ligne_est_pct                  # % dans la ligne
+                            or colonnes_pct.get(idx, False) # % dans la colonne
+                            or had_percent                 # % dans la cellule
+                            or is_pourcentage              # % dans le titre
+                        )
+
+                        if is_pct_cell:
                             unite = "%"
-
-                            # ✅ Si la cellule Excel est un texte contenant "%", on divise par 100
-                            # sinon (Excel stocke déjà 0.1502 pour 15%), on ne touche pas.
-                            if had_percent:
-                                val = val / 100.0 if val is not None else None
-
-                            # ✅ Garder plus de précision (4 décimales)
-                            val = round(val, 4) if val is not None else None
+                            val = round(val, 4)
 
 
 
@@ -514,7 +560,24 @@ class ImportExcelView(APIView):
 
             # Récupération
             headers_old = tableau_trie[0]
-            data_rows = tableau_trie[1:]
+            data_rows = []
+
+            for row in tableau_trie[1:]:
+                if not row:
+                    continue
+
+                first_cell = str(row[0]).strip().lower()
+
+                # 🛑 arrêter le tableau dès qu’on rencontre Source / Sources
+                if first_cell.startswith("source") or first_cell.startswith("sources"):
+                    break
+
+                # 🛑 ignorer les notes étoilées dans les données
+                if first_cell.startswith("*"):
+                    break   # ou continue, mais break est plus sûr
+
+                data_rows.append(row)
+
 
             tableau = Tableau.objects.create(
                 nom_feuille=feuille,
@@ -531,10 +594,20 @@ class ImportExcelView(APIView):
                 or "pourcentage" in titre_lower
                 or "proportion" in titre_lower
                 or "porportion" in titre_lower 
-                or "Taux" in titre_lower # pour ton cas
+                or "taux" in titre_lower # pour ton cas
             )
 
+            # ✅ Collecte des notes étoilées (ancien format)
+            notes_etoiles = {}
 
+            for row in lignes:
+                if not row:
+                    continue
+                first_cell = str(row[0]).strip() if row[0] is not None else ""
+                if first_cell.startswith("*"):
+                    # Exemple: "* Données RGE 2024"
+                    note_text = first_cell.lstrip("*").strip()
+                    notes_etoiles["*"] = note_text
             for row in data_rows:
                 # détecter la ligne source de manière robuste
                 first = str(row[0]).strip().lower()
@@ -545,32 +618,49 @@ class ImportExcelView(APIView):
                 if not row or len(row) < 2:
                     continue
 
+                # ================================
+                # 🔥 DÉTECTION POURCENTAGE (ANCIEN FORMAT)
+                # ================================
                 indicateur_raw = (row[0] or "").strip()
-                indicateur_brut = format_excel_date(indicateur_raw)  # ✅ formate les lignes
+                ligne_est_pct = "%" in indicateur_raw   # 👈 ICI EXACTEMENT
+
+                indicateur_brut = format_excel_date(indicateur_raw)
 
                 if not indicateur_brut:
                     continue
 
+                # ================================
+                # 🔥 STOCKAGE SUR LA LIGNE
+                # ================================
                 ligne_obj = LigneIndicateur.objects.create(
                     tableau=tableau,
-                    label=indicateur_brut,  # ✅ version formatée
+                    label=indicateur_brut,
                     code='',
                     parent_code='',
-                    ordre=None
+                    ordre=None,
+                    est_pourcentage=ligne_est_pct   # 👈 TRÈS IMPORTANT
                 )
+
 
                 for cidx in range(1, len(headers_old)):
                     if cidx >= len(row):
                         continue
+                    header_raw = str(headers_old[cidx]).strip()
                     annee = format_excel_date(headers_old[cidx])  # ✅ colonnes
                     if not annee:
                         continue
+                    # Gérer la note étoilée (*)
+                    note = None
+                    if "*" in str(annee):
+                        note = notes_etoiles.get("*", "")
+
 
                     raw_val, had_percent = parse_numeric(row[cidx])  
                     if raw_val is None:
                         texte_original = ""
                         if cidx < len(row) and row[cidx] is not None:
                             texte_original = str(row[cidx]).strip() or ""
+                       
 
                         # 🔥 Toujours créer la donnée (même vide)
                         Donnees.objects.create(
@@ -581,7 +671,8 @@ class ImportExcelView(APIView):
                             valeur=None,
                             statut=texte_original,   # <-- clé de la correction !
                             categorie_id=id_cat,
-                            tableau=tableau
+                            tableau=tableau,
+                            note_colonne=note,
                         )
                         continue
 
@@ -590,16 +681,18 @@ class ImportExcelView(APIView):
 
                     unite = ""
                     val = raw_val
-                    if is_pourcentage or had_percent:
+                    is_pct_colonne = "%" in header_raw
+
+                    is_pct_cell = (
+                        ligne_est_pct
+                        or is_pct_colonne
+                        or had_percent
+                        or is_pourcentage
+                    )
+
+                    if is_pct_cell:
                         unite = "%"
-
-                        # ✅ Si la cellule Excel est un texte contenant "%", on divise par 100
-                        # sinon (Excel stocke déjà 0.1502 pour 15%), on ne touche pas.
-                        if had_percent:
-                            val = val / 100.0 if val is not None else None
-
-                        # ✅ Garder plus de précision (4 décimales)
-                        val = round(val, 4) if val is not None else None
+                        val = round(val, 4)
 
 
 
@@ -611,6 +704,7 @@ class ImportExcelView(APIView):
                         valeur=val,
                         categorie_id=id_cat,
                         tableau=tableau,
+                        note_colonne=note,
                        
                     )
 
@@ -633,12 +727,23 @@ class TableauDetailStructureView(APIView):
                 "colonnes_order": [],
                 "data": [],
                 "has_sous_indicateurs": False,
-                "meta": {"titre": "", "source": "", "etiquette_ligne": "","afficher_decimales": tableau.afficher_decimales,"tableau_id": tableau.id, },
+                "meta": {"titre": "", "source": "", "etiquette_ligne": "","afficher_decimales": tableau.afficher_decimales,
+                         "tableau_id": tableau.id, "nom_feuille": tableau.nom_feuille,"theme_nom": tableau.theme.nom_theme},
+                        
+
                 "format": None,
                 "statuts": [],
             })
 
         tableau = donnees.first().tableau
+                # 🔎 Détection des colonnes pourcentage (UNE SEULE FOIS)
+        colonnes_pourcentage = set()
+
+        for d in donnees:
+            col_label = (d.colonne or "").lower()
+            if "%" in col_label or "pourcentage" in col_label or "taux" in col_label:
+                colonnes_pourcentage.add(d.colonne)
+
          # ✅ Détection des statuts textuels spéciaux
         statuts_present = (
             Donnees.objects
@@ -648,40 +753,55 @@ class TableauDetailStructureView(APIView):
         )
 
         statuts_uniques = set([s.strip().upper() for s in statuts_present if s.strip()])
+        titre_lower = (tableau.titre or "").lower()
+
+        is_number_table = any(
+            k in titre_lower
+            for k in ["nombre", "effectif", "effectifs", "quantité"]
+        )
+
+        has_pct_lines = any(
+            d.ligne and d.ligne.est_pourcentage
+            for d in donnees
+        )
+
+        tableau_heterogene = is_number_table and has_pct_lines
 
 
         def format_value(d):
-            # 1) cellule vide
             if d.valeur is None and not d.statut:
                 return ""
 
-            # 2) statut texte (ex: N/D)
             if d.statut:
                 return d.statut
 
-            titre = (d.tableau.titre or "").lower()
-            titre = " ".join(titre.split())
-
-            is_pct = d.unite == "%"
-            is_nombre = ("nombre" in titre) or ("effectif" in titre) or ("quantité" in titre)
-            dec = d.tableau.afficher_decimales  # <<< UTILISÉ ICI
-
             val = d.valeur
+            ligne = d.ligne
+            tableau = d.tableau
 
-            # 3) Pourcentages
-            if is_pct:
-                # remettre à 100 si Excel a stocké 0.15 pour 15%
-                val = val * 100 if abs(val) <= 1.5 else val
-                return f"{val:.2f}" if dec else f"{int(round(val))}"
+            # 🔥 PRIORITÉ ABSOLUE : % (ligne OU colonne)
+            if (
+                ligne.est_pourcentage
+                or d.unite == "%"
+                or d.colonne in colonnes_pourcentage
+            ):
+                return f"{val:.2f}".replace(".", ",")
 
-            # 4) Tableaux de type "nombre / effectif"
-            if is_nombre:
+            titre_lower = (tableau.titre or "").lower()
+            is_number_table = any(
+                k in titre_lower
+                for k in ["nombre", "effectif", "effectifs", "quantité"]
+            )
+
+            # 🔢 TABLEAUX NUMÉRIQUES (purs ou hétérogènes)
+            if is_number_table:
                 return f"{int(round(val))}"
 
-            # 5) Format général
-            return f"{val:.2f}" if dec else f"{int(round(val))}"
+            # 🔘 AUTRES TABLEAUX → bouton admin
+            if tableau.afficher_decimales:
+                return f"{val:.2f}".replace(".", ",")
 
-
+            return f"{int(round(val))}"
 
 
         # Détection format (nouveau si présence code/ordre)
@@ -813,7 +933,12 @@ class TableauDetailStructureView(APIView):
                         if tableau.date_verrouillage else None
                     ),
                     "afficher_decimales": tableau.afficher_decimales,
+                    "tableau_heterogene": tableau_heterogene,
+                    "tableau_numerique": is_number_table,
+                    "colonnes_pourcentage": list(colonnes_pourcentage),
                     "tableau_id": tableau.id, 
+                    "nom_feuille": tableau.nom_feuille,
+                    "theme_nom": tableau.theme.nom_theme
                 },
 
                 "format": "nouveau",
@@ -894,6 +1019,7 @@ class TableauDetailStructureView(APIView):
 
                 data.append({
                     "indicateur": indicateur,
+                    "is_pourcentage": "%" in indicateur,
 
                     # 👉🔥 AJOUT OBLIGATOIRE POUR AFFICHER LES VALEURS PRINCIPALES
                     "valeurs": dict(contenu["valeurs"]),  # <--- ICI
@@ -914,6 +1040,7 @@ class TableauDetailStructureView(APIView):
                 data.append({
                     "indicateur": indicateur,
                     "valeurs": dict(contenu["valeurs"]),
+                    "is_pourcentage": "%" in indicateur,
                     "niveau": 0,
                     "ordre": None,
                     "code": None,
@@ -951,7 +1078,14 @@ class TableauDetailStructureView(APIView):
                         if tableau.date_verrouillage else None
                     ),
                     "afficher_decimales": tableau.afficher_decimales,
-                    "tableau_id": tableau.id, 
+                    "tableau_id": tableau.id,
+                    "nom_feuille": tableau.nom_feuille,
+                    "theme_nom": tableau.theme.nom_theme,
+                    "tableau_heterogene": tableau_heterogene,
+                    "tableau_numerique": is_number_table,
+                    "colonnes_pourcentage": list(colonnes_pourcentage),
+
+
                 },
             "format": "ancien",
             "notes": notes_text,  
@@ -1257,7 +1391,8 @@ class CarteParTableauAPIView(APIView):
             'valeurs': valeurs_par_defaut
         })
     
-    from rest_framework.views import APIView
+
+from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.http import HttpResponse
@@ -1375,6 +1510,7 @@ class GroupedSourcesAutoAPIView(APIView):
         "EPCV": ["epcv", "conditions de vie des ménages"],
         "MICS": ["mics", "indicateurs multiples"],
         "EDSM": ["edsm", "santé et démographie"],
+        "RGE": ["rge"],
         "ICC": ["icc"],
         "PIB": ["pib"],
         "INPC": ["inpc"],
@@ -1400,6 +1536,7 @@ class GroupedSourcesAutoAPIView(APIView):
         "EPCV",
         "MICS",
         "EDSM",
+        "RGE",
         "ICC",
         "PIB",
         "INPC",
@@ -1713,6 +1850,7 @@ def build_sheet_old_format(wb, tableau):
         ws.cell(row=row_excel + 1, column=1, value=f"Source : {tableau.source}").font = Font(italic=True)
 
     return ws
+
 class TableauToggleDecimalsAPIView(APIView):
     permission_classes = [IsAuthenticated]
 

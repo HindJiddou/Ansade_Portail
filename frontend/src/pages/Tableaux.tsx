@@ -164,12 +164,12 @@ export default function Tableaux() {
             {themeMeta?.nom_theme || "..."}
           </span>
 
-          {/* <button
+          <button
             onClick={handleExportThemeBackend}
             className="px-3 py-1 text-sm border border-emerald-300 rounded-md bg-white text-slate-700 hover:bg-emerald-50 flex items-center gap-2"
           >
             ⬇️ Exporter tout le theme
-          </button> */}
+          </button>
 
         </h1>
 

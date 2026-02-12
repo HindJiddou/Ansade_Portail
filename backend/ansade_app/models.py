@@ -75,6 +75,7 @@ class LigneIndicateur(models.Model):
     code = models.CharField(max_length=100, blank=True, null=True)
     parent_code = models.CharField(max_length=100, blank=True, null=True)
     ordre = models.IntegerField(blank=True, null=True)
+    est_pourcentage = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['ordre']
@@ -91,7 +92,7 @@ class Donnees(models.Model):
     unite = models.CharField(max_length=50, blank=True)
     source = models.TextField(blank=True)
     valeur = models.FloatField(null=True, blank=True)
-    statut = models.CharField(max_length=50, blank=True, null=True)
+    statut = models.CharField(blank=True, null=True)
     note_colonne = models.CharField(max_length=255, blank=True, null=True)  
     categorie = models.ForeignKey(Categorie, on_delete=models.CASCADE)
     tableau = models.ForeignKey(Tableau, on_delete=models.CASCADE)

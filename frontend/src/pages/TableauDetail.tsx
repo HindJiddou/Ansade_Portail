@@ -12,6 +12,15 @@ import {
 import { useParams } from "react-router-dom";
 import axiosInstance from "../utils/axiosInstance"; // 
 import BackButton from "./BackButton";
+import {
+  buildExportFileName,
+  // extractVisibleTableData,
+  // cleanNumericValue,
+  buildExcelAOA ,
+  buildHeaderMerges,
+} from "../utils/exportUtils";
+
+
 
 /* ---------- Types ---------- */
 type Valeurs = Record<string, Record<string, string>>;
@@ -24,6 +33,7 @@ type Row = {
   valeurs?: Valeurs;
   sous_indicateurs?: SousIndicateur[];
   is_section?: boolean;
+  is_pourcentage?: boolean; 
 };
 
 type Payload = {
@@ -37,6 +47,10 @@ type Payload = {
   etiquette_ligne: string;
   categorie_id?: number;
   date_verrouillage?: string | null;
+  tableau_heterogene?: boolean;
+  tableau_numerique?: boolean;
+  colonnes_pourcentage?: string[];
+
   };
 
   format?: "ancien" | "nouveau";
@@ -49,6 +63,8 @@ type Meta = {
   etiquette_ligne: string;
   categorie_id?: number;
   date_verrouillage?: string | null;
+  nom_feuille?: string;   // ✅ AJOUT
+  theme_nom?: string; 
 };
 
 
@@ -61,7 +77,7 @@ const LEFT1_W = "clamp(180px, 22vw, 290px)";
 const LEFT2_W = "clamp(140px, 18vw, 220px)";
 const LEFT1_MIN = 180;
 const LEFT2_MIN = 140;
-const DATA_MIN = 96;
+const DATA_MIN = 120;
 const ANNEES_RECENSEMENT = ["1977", "1988", "2000", "2013", "2023"];
 
 /* ---------- Base styles ---------- */
@@ -69,7 +85,7 @@ const thBase =
   "sticky top-0 z-30 text-[13.5px] md:text-[14px] font-semibold text-slate-800 bg-emerald-50 border border-emerald-200 px-3 py-2 backdrop-blur";
 const tdBase =
   "px-3 py-2 border border-slate-200 text-[13.5px] align-middle";
-const tdRight = `${tdBase} text-center `;
+const tdRight = `${tdBase} text-right whitespace-nowrap`;
 const tdLeft = `${tdBase} text-left `;
 const zebra = "odd:bg-white even:bg-slate-50/60";
 
@@ -96,52 +112,52 @@ function getCell(vals: Valeurs | undefined, item: ColonnesOrderItem): string {
 
 function formatCell(
   raw?: string | null,
-  titreLower?: string,
-  showDecimals?: boolean
+  row?: Row,
+  showDecimals?: boolean,
+  isHeterogene?: boolean,
+  isNumerique?: boolean,
+  columnLabel?: string,
+  colonnesPourcentage?: string[]
 ): string {
   if (!raw) return "NA";
 
   const s = String(raw).trim();
   if (!s) return "NA";
 
-  // ✔ Laisser les pourcentages tels quels
-  if (s.includes("%")) return s;
-
-  // ✔ Conversion vers nombre
   const num = parseFloat(s.replace(/\s/g, "").replace(",", "."));
   if (isNaN(num)) return s;
 
-  // ✔ Détection tableaux d’effectifs
-  const estTableauDeNombres =
-    titreLower?.includes("nombre") ||
-    titreLower?.includes("effectif") ||
-    titreLower?.includes("effectifs") ||
-    titreLower?.includes("quantité");
+  const isColPct = colonnesPourcentage?.includes(columnLabel || "");
 
-  // ✔ Cas tableaux d’effectifs → PAS DE DÉCIMALES
-  if (estTableauDeNombres) {
-    return num.toLocaleString("fr-FR", {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    });
-  }
-
-  // ✔ Tous les autres tableaux
-  if (showDecimals) {
-    // → afficher 2 décimales
+  /* 🟠 PRIORITÉ ABSOLUE : % ligne OU % colonne */
+  if (row?.is_pourcentage || isColPct) {
     return num.toLocaleString("fr-FR", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
-    }).replace(".", ",");
-  } else {
-    // → arrondi entiers (affichage simple)
+    });
+  }
+
+  /* 🟢 TABLEAU NUMÉRIQUE (pur ou hétérogène) */
+  if (isNumerique) {
     return num.toLocaleString("fr-FR", {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     });
   }
-}
 
+  /* 🔵 AUTRES TABLEAUX */
+  if (showDecimals) {
+    return num.toLocaleString("fr-FR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
+  return num.toLocaleString("fr-FR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
+}
 
 
 
@@ -155,6 +171,7 @@ function Toolbar({
   payload,
   showDecimals,
   setShowDecimals,
+  isHeterogene,
 }: {
   tableId: string;
   title: string;
@@ -163,44 +180,43 @@ function Toolbar({
   payload: any;
   showDecimals: boolean;
   setShowDecimals: (val: boolean) => void;
+  isHeterogene: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
   return (
     <div className="flex items-center gap-2">
       {/* ✅ Bouton décimales visible seulement pour admin ou chef autorisé */}
-      {(user?.is_superuser ||
-        (user?.is_chef && user?.categorie?.id === payload?.meta?.categorie_id)) && (
-        <button
-          onClick={async () => {
-            const newValue = !showDecimals;
+      {!isHeterogene &&
+        (user?.is_superuser ||
+          (user?.is_chef &&
+            user?.categorie?.id === payload?.meta?.categorie_id)) && (
+          <button
+            onClick={async () => {
+              const newValue = !showDecimals;
 
-            try {
-              await axiosInstance.post(`/tableaux/${tableId}/toggle-decimals/`, {
-                afficher_decimales: newValue,
-              });
-
-              // mettre à jour frontend
-              setShowDecimals(newValue);
-            } catch (err) {
-              console.error("Erreur toggle:", err);
-              alert("Impossible de modifier la préférence décimales");
-            }
-        }}
-
-
-          className={`inline-flex items-center gap-2 rounded-lg border text-sm font-medium shadow-sm transition px-3 py-2
-            ${
-              showDecimals
-                ? "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700"
-                : "bg-white text-emerald-700 border-emerald-400 hover:bg-emerald-50"
-            }`}
-        >
-          {showDecimals ? "Masquer décimales" : "Afficher décimales"}
-
-
-        </button>
+              try {
+                await axiosInstance.post(
+                  `/tableaux/${tableId}/toggle-decimals/`,
+                  { afficher_decimales: newValue }
+                );
+                setShowDecimals(newValue);
+              } catch (err) {
+                console.error("Erreur toggle:", err);
+                alert("Impossible de modifier la préférence décimales");
+              }
+            }}
+            className={`inline-flex items-center gap-2 rounded-lg border text-sm font-medium shadow-sm transition px-3 py-2
+              ${
+                showDecimals
+                  ? "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700"
+                  : "bg-white text-emerald-700 border-emerald-400 hover:bg-emerald-50"
+              }`}
+          >
+            {showDecimals ? "Masquer décimales" : "Afficher décimales"}
+          </button>
       )}
+
 
       {/* 🔍 Filtrage */}
       <button
@@ -225,13 +241,24 @@ function Toolbar({
           >
             <button
               className="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50"
-              onClick={() => exportTableToExcel(tableId)}
+              onClick={() =>
+               exportTableToExcel(
+                tableId,
+                payload.meta,
+                payload.meta.theme_nom,
+                payload
+              )
+              
+
+              }
+
             >
               XLSX (Excel)
             </button>
             <button
               className="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50"
-              onClick={() => exportTableToPDF(tableId, title)}
+              onClick={() => exportTableToPDF(tableId, payload.meta,
+                  payload.meta.theme_nom)}
             >
               PDF
             </button>
@@ -369,8 +396,13 @@ export default function TableauDetail() {
 
   const tableId = id;
   const [payload, setPayload] = useState<Payload | null>(null);
+  const isHeterogene = payload?.meta?.tableau_heterogene === true;
+  const isNumerique = payload?.meta?.tableau_numerique === true;
+  const colonnesPourcentage = payload?.meta?.colonnes_pourcentage || [];
   const user = JSON.parse(localStorage.getItem("user") || "null");
   console.log("USER =", user);
+  
+
   const [visibleStatuts, setVisibleStatuts] = useState<string[]>([]);
   const [meta, setMeta] = useState<Meta | null>(null);
   const [loading, setLoading] = useState(true);
@@ -666,6 +698,7 @@ function isProjectionColumn(label: string, source?: string): boolean {
           payload={payload}
           showDecimals={showDecimals}
           setShowDecimals={setShowDecimals}
+          isHeterogene={isHeterogene}
         />
 
       </div>
@@ -721,7 +754,7 @@ function isProjectionColumn(label: string, source?: string): boolean {
 
                 {singleHeaderRow ? (
                   order.map((it, i) => (
-                    <th key={`one-${i}`} className={`${thBase} text-center`}>
+                    <th key={`one-${i}`} className={`${thBase} text-center align-middle whitespace-normal break-words leading-snug`}>
                       {it.principal}
                     </th>
                   ))
@@ -767,7 +800,7 @@ function isProjectionColumn(label: string, source?: string): boolean {
                           i = j;
                         }
                         return cells.map((c, idx) => (
-                          <th key={`top-${idx}`} className={`${thBase} text-center`} colSpan={c.span}>
+                          <th key={`top-${idx}`} className={`${thBase} text-center align-middle whitespace-normal break-words leading-snug`} colSpan={c.span}>
                             {c.label}
                           </th>
                         ));
@@ -786,7 +819,7 @@ function isProjectionColumn(label: string, source?: string): boolean {
                       return sous.map((s, i) => (
                         <th
                           key={`sub-${principal}-${i}`}
-                          className={`${thBase} text-center`}
+                          className={`${thBase} text-center `}
                           style={{ top: head1H }}
                         >
                           {s}
@@ -841,8 +874,12 @@ function isProjectionColumn(label: string, source?: string): boolean {
                             >
                               {formatCell(
                                 getCell(row.valeurs, it),
-                                meta.titre.toLowerCase(),
-                                showDecimals
+                                row,
+                                showDecimals,
+                                isHeterogene,
+                                isNumerique,
+                                it.principal,                 
+                                colonnesPourcentage,
                             )}
 
                             </td>
@@ -872,10 +909,10 @@ function isProjectionColumn(label: string, source?: string): boolean {
                         <tr key={`old-sub-${idx}-${k}`} className={zebra}>
                           <td
                             className={`${tdLeft} sticky left-0 z-10 bg-white`}
-                            style={{ paddingLeft: "22px" }}
                           >
-                            {s.nom}
+                            {"\u00A0\u00A0\u00A0\u00A0" + s.nom}
                           </td>
+
 
                           {order.map((it, j) => (
                             <td
@@ -889,8 +926,12 @@ function isProjectionColumn(label: string, source?: string): boolean {
                             >
                               {formatCell(
                                 getCell(s.valeurs, it),
-                                meta.titre.toLowerCase(),
-                                showDecimals
+                                row,
+                                showDecimals,
+                                isHeterogene,
+                                isNumerique,
+                                it.principal,                 
+                                colonnesPourcentage,
                             )}
 
                             </td>
@@ -916,7 +957,7 @@ function isProjectionColumn(label: string, source?: string): boolean {
                     <tr key={`new-${i}`} className={zebra}>
                       <td className={`${tdLeft} sticky left-0 z-10 ${leftBg}`} style={{ paddingLeft: pad }}>
                         <span className={isTop || row.is_section ? "font-medium text-emerald-900" : ""}>
-                          {row.indicateur}
+                          {"\u00A0\u00A0\u00A0".repeat(lvl) + row.indicateur}
                         </span>
                       </td>
                       {order.map((it, j) => {
@@ -982,8 +1023,11 @@ function isProjectionColumn(label: string, source?: string): boolean {
                           >
                             {formatCell(
                               getCell(row.valeurs, it),
-                              meta.titre.toLowerCase(),
-                              showDecimals
+                              row,
+                              showDecimals,
+                              isHeterogene,
+                            
+
                           )}
 
 
@@ -1164,36 +1208,91 @@ function isProjectionColumn(label: string, source?: string): boolean {
 }
 
 /* ---------- Export helpers ---------- */
-function exportTableToExcel(tableId: string) {
-  const el = document.getElementById(tableId);
-  if (!el) return;
+
+
+function exportTableToExcel(
+  tableId: string,
+  meta: Meta,
+  themeName: string,
+  payload: any
+) {
   import("xlsx").then((XLSX) => {
-    const wb = XLSX.utils.table_to_book(el as any, { sheet: "Données" });
-    XLSX.writeFile(wb, `${tableId}.xlsx`);
+
+    const aoa = buildExcelAOA(payload, meta);
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+    /* 🔗 FUSIONS UNIQUEMENT SI SOUS-COLONNES */
+    if (payload.colonnes_groupées) {
+      const hasRealSubs = Object.values(payload.colonnes_groupées)
+        .some((s: any) => s.filter((x: string) => x && x.trim()).length > 1);
+
+      if (hasRealSubs) {
+        ws["!merges"] = buildHeaderMerges(
+          payload.colonnes_groupées,
+          2 // ligne header (0-based)
+        );
+      }
+    }
+
+    ws["A1"].s = { font: { bold: true, sz: 14 } };
+
+    const wb = XLSX.utils.book_new();
+    const sheetName = (meta.nom_feuille || "Tableau").substring(0, 31);
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+
+    const fileName = buildExportFileName(themeName, meta.titre);
+    XLSX.writeFile(wb, `${fileName}.xlsx`);
   });
 }
 
-function exportTableToPDF(tableId: string, title: string) {
+
+
+
+
+function exportTableToPDF(
+  tableId: string,
+  meta: Meta,
+  themeName: string
+) {
   const el = document.getElementById(tableId);
   if (!el) return;
+
   import("html2canvas").then(({ default: html2canvas }) => {
     import("jspdf").then(({ default: jsPDF }) => {
-      html2canvas(el as any, { scale: 2 }).then((canvas) => {
+      html2canvas(el, { scale: 2 }).then((canvas) => {
         const pdf = new jsPDF("l", "pt", "a4");
+
         const pageW = pdf.internal.pageSize.getWidth();
-        const pageH = pdf.internal.pageSize.getHeight();
         const imgW = pageW - 40;
         const imgH = (canvas.height * imgW) / canvas.width;
-        const img = canvas.toDataURL("image/png");
-        pdf.text(title || "Tableau", 20, 24);
-        let rendered = 0;
-        while (rendered < imgH) {
-          pdf.addImage(img, "PNG", 20, 40 - rendered, imgW, imgH);
-          rendered += pageH - 60;
-          if (rendered < imgH) pdf.addPage();
-        }
-        pdf.save(`${tableId}.pdf`);
+
+        // 🔹 TITRE
+        pdf.setFontSize(14);
+        pdf.text(meta.titre, 20, 30);
+
+        // 🔹 TABLEAU
+        pdf.addImage(
+          canvas.toDataURL("image/png"),
+          "PNG",
+          20,
+          50,
+          imgW,
+          imgH
+        );
+
+        // 🔹 SOURCE
+        pdf.setFontSize(10);
+        pdf.text(
+          `Source : ${meta.source}`,
+          20,
+          50 + imgH + 20
+        );
+
+        const fileName = buildExportFileName(themeName, meta.titre);
+        pdf.save(`${fileName}.pdf`);
       });
     });
   });
 }
+

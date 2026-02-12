@@ -8,7 +8,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         try:
-            theme = Theme.objects.get(nom_theme__iexact="Education")
+            theme = Theme.objects.get(nom_theme__iexact="Démographie")
         except Theme.DoesNotExist:
             self.stderr.write(
                 self.style.ERROR("❌ Le thème 'Démographie' n'existe pas")
