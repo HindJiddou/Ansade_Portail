@@ -1,7 +1,7 @@
 // src/pages/Categories.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
+import axiosInstance from "../utils/axiosInstance";
 import { motion } from "framer-motion";
 import {
   FaUsers,
@@ -9,7 +9,7 @@ import {
   FaLeaf,
   FaChartLine,
   FaFolderOpen,
-} from "react-icons/fa";
+} from "react-icons/fa/index.js";
 import BackButton from "./BackButton";
 
 interface Categorie { id: number; nom_cat: string; }
@@ -32,8 +32,9 @@ export default function Categories() {
   // TEST GIT: modification temporaire
 
   useEffect(() => {
-    axios.get("/api/categories/")
-      .then(r => setCategories(r.data))
+    axiosInstance.get("/categories/")
+      .then(r => 
+        setCategories(r.data))
       .catch(console.error);
   }, []);
 

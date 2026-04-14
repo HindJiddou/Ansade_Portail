@@ -1,19 +1,20 @@
 import React, { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-
+import.meta.env.VITE_API_URL
 const Header: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [open, setOpen] = useState(false);
 
-  const user = JSON.parse(localStorage.getItem("user") || "null");
+  const user = JSON.parse(sessionStorage.getItem("user") || "null");
   const isChef = user?.is_chef;
   const isSuperUser = user?.is_superuser || user?.is_staff;
-  const canUpdate = isChef || isSuperUser;
+ 
+  const canUpdate = (isChef || isSuperUser) ;
+
 
   const handleLogout = () => {
-    localStorage.removeItem("access");
-    localStorage.removeItem("user");
+    sessionStorage.clear();
     navigate("/login");
   };
 
@@ -67,7 +68,7 @@ const Header: React.FC = () => {
                   Mise à jour
                 </Link>
                 <a
-                  href="http://127.0.0.1:8000/admin/"
+                  href={`${import.meta.env.VITE_API_URL}/admin/`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className={[baseBtn, underline].join(" ")}
@@ -117,7 +118,7 @@ const Header: React.FC = () => {
                   Mise à jour
                 </Link>
                 <a
-                  href="http://127.0.0.1:8000/admin/"
+                  href={`${import.meta.env.VITE_API_URL}/admin/`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className={[baseBtn, underline].join(" ")}

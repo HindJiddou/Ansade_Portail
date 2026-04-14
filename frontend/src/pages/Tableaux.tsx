@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import axios from "axios";
+import axiosInstance from "../utils/axiosInstance";
 import { motion } from "framer-motion";
 import BackButton from "./BackButton";
-import { FaSearch, FaRegEye, FaDownload, FaTable } from "react-icons/fa";
+import { FaSearch, FaRegEye, FaDownload, FaTable } from "react-icons/fa/index.js";
 import * as XLSX from "xlsx"; // 👉 AJOUT EXPORT
+import { isAdminOrChef } from "../utils/auth";
 
 /* ======================
    Interfaces TypeScript
@@ -49,12 +50,13 @@ export default function Tableaux() {
   const [themeMeta, setThemeMeta] = useState<ThemeMeta | null>(null);
   const [query, setQuery] = useState("");
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
+  const isAdmin = isAdminOrChef();
 
   /* === Charger les tableaux du thème === */
   useEffect(() => {
-    axios
-      .get("/api/tableaux/")
-      .then((res) => {
+    axiosInstance
+      .get("/tableaux/")
+      .then((res:any) => {
         const filtered = res.data.filter((t: Tableau) => t.theme === parseInt(id || "0", 10));
         setTableaux(filtered);
       })
@@ -64,9 +66,9 @@ export default function Tableaux() {
   /* === Charger les métadonnées du thème === */
   useEffect(() => {
     if (!id) return;
-    axios
-      .get(`/api/themes/${id}/`)
-      .then((res) => setThemeMeta(res.data))
+    axiosInstance
+      .get(`/themes/${id}/`)
+      .then((res:any) => setThemeMeta(res.data))
       .catch(console.error);
   }, [id]);
 
@@ -163,13 +165,13 @@ export default function Tableaux() {
           <span className="text-emerald-700">
             {themeMeta?.nom_theme || "..."}
           </span>
-
+          {isAdmin && (
           <button
             onClick={handleExportThemeBackend}
             className="px-3 py-1 text-sm border border-emerald-300 rounded-md bg-white text-slate-700 hover:bg-emerald-50 flex items-center gap-2"
           >
             ⬇️ Exporter tout le theme
-          </button>
+          </button>)}
 
         </h1>
 

@@ -13,7 +13,7 @@ const ImportExcel: React.FC<Props> = ({ onBack }) => {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const user = JSON.parse(localStorage.getItem("user") || "null");
+  const user = JSON.parse(sessionStorage.getItem("user") || "null");
   const [categorie, setCategorie] = useState(user?.categorie || null);
 
   /* =======================
@@ -66,7 +66,7 @@ const ImportExcel: React.FC<Props> = ({ onBack }) => {
     formData.append("theme_id", selectedTheme);
 
     try {
-      const token = localStorage.getItem("access");
+      const token = sessionStorage.getItem("access");
       const res = await axiosInstance.post("/import-excel/", formData, {
         headers: {
           "Content-Type": "multipart/form-data",

@@ -399,7 +399,7 @@ export default function TableauDetail() {
   const isHeterogene = payload?.meta?.tableau_heterogene === true;
   const isNumerique = payload?.meta?.tableau_numerique === true;
   const colonnesPourcentage = payload?.meta?.colonnes_pourcentage || [];
-  const user = JSON.parse(localStorage.getItem("user") || "null");
+  const user = JSON.parse(sessionStorage.getItem("user") || "null");
   console.log("USER =", user);
   
 
@@ -438,7 +438,7 @@ export default function TableauDetail() {
   // 🔥 Charger la préférence globale depuis le backend
   useEffect(() => {
     axiosInstance.get(`/tableaux/${id}/structure/`)
-      .then((res) => {
+      .then((res:any) => {
         setShowDecimals(res.data.meta?.afficher_decimales ?? true);
       })
       .catch(() => console.warn("Impossible de charger la préférence décimales"));

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import axios from "axios";
+import axiosInstance from "../utils/axiosInstance";
 import { Link } from "react-router-dom";
 import {
   FaDatabase,
@@ -7,7 +7,7 @@ import {
   FaArrowLeft,
   FaChevronRight,
   FaChevronDown,
-} from "react-icons/fa";
+} from "react-icons/fa/index.js";
 import { motion, AnimatePresence } from "framer-motion";
 
 const SourcesPage: React.FC = () => {
@@ -18,9 +18,9 @@ const SourcesPage: React.FC = () => {
   const [openFamille, setOpenFamille] = useState<string | null>(null);
 
   useEffect(() => {
-    axios
-      .get("/api/sources/grouped-auto/")
-      .then((res) => {
+    axiosInstance
+      .get("/sources/grouped-auto/")
+      .then((res:any) => {
         const data = Array.isArray(res.data)
           ? Object.assign({}, ...res.data)
           : res.data;
@@ -37,9 +37,9 @@ const SourcesPage: React.FC = () => {
     setSelectedSource(source);
     setTableaux([]);
 
-    axios
-      .get(`/api/sources/tableaux/?source=${encodeURIComponent(source)}`)
-      .then((res) => setTableaux(res.data))
+    axiosInstance
+      .get(`/sources/tableaux/?source=${encodeURIComponent(source)}`)
+      .then((res:any) => setTableaux(res.data))
       .catch((err) =>
         console.error("Erreur lors du chargement des tableaux :", err)
       );
@@ -55,7 +55,7 @@ const SourcesPage: React.FC = () => {
     // Charge tous les tableaux liés à cette famille
     Promise.all(
       sourcesList.map((src) =>
-        axios.get(`/api/sources/tableaux/?source=${encodeURIComponent(src)}`)
+        axiosInstance.get(`/sources/tableaux/?source=${encodeURIComponent(src)}`)
       )
     )
       .then((responses) => {

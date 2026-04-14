@@ -20,13 +20,11 @@ const LoginPage: React.FC = () => {
       // ✅ On récupère access + refresh + user
       const { access, refresh, user } = response.data;
 
-      // 🧹 Nettoyer l'ancien utilisateur et token
-      localStorage.clear();
+      sessionStorage.clear();
 
-      // 🔐 Stocker les nouvelles infos
-      localStorage.setItem("access", access);
-      localStorage.setItem("refresh", refresh);
-      localStorage.setItem("user", JSON.stringify(user));
+      sessionStorage.setItem("access", access);
+      sessionStorage.setItem("refresh", refresh);
+      sessionStorage.setItem("user", JSON.stringify(user));
 
       // 🔁 Redirection selon le rôle
       if (user.is_chef || user.is_superuser) {

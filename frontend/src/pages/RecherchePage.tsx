@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import axios from "axios";
+import axiosInstance from "../utils/axiosInstance";
 import { Link } from "react-router-dom";
-import { FaSearch, FaDatabase } from "react-icons/fa";
+import { FaSearch, FaDatabase } from "react-icons/fa/index.js";
 
 interface Resultat {
   type: string;
@@ -19,9 +19,9 @@ const RecherchePage: React.FC = () => {
   useEffect(() => {
     const delayDebounce = setTimeout(() => {
       if (query.length > 1) {
-        axios
-          .get(`/api/recherche-globale/?q=${encodeURIComponent(query)}`)
-          .then((res) => {
+        axiosInstance
+          .get(`/recherche-globale/?q=${encodeURIComponent(query)}`)
+          .then((res:any) => {
             setResultats(res.data);
             setAfficherTout(false);
           })

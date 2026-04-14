@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import axios from "axios";
+import axiosInstance from "../utils/axiosInstance";
 import { ArrowLeft } from "lucide-react";
 
 const BackButton: React.FC = () => {
@@ -26,7 +26,7 @@ const BackButton: React.FC = () => {
 
         // Catégorie (on affiche le nom exact de la catégorie)
         if (segs[0] === "categories" && segs[1]) {
-          const { data } = await axios.get(`/api/categories/${segs[1]}/`, {
+          const { data } = await axiosInstance.get(`/categories/${segs[1]}/`, {
             signal: controller.signal,
           });
           setLabel(data?.nom_cat || "Catégorie");
@@ -35,7 +35,7 @@ const BackButton: React.FC = () => {
 
         // Thèmes d’une catégorie (on affiche le nom exact du thème)
         if (segs[0] === "themes" && segs[1]) {
-          const { data } = await axios.get(`/api/themes/${segs[1]}/`, {
+          const { data } = await axiosInstance.get(`/themes/${segs[1]}/`, {
             signal: controller.signal,
           });
           setLabel(data?.nom_theme || "Thème");

@@ -6,10 +6,6 @@ import Accueil from "./pages/Accueil";
 import ChefDepartementDashboard from "./pages/ChefDepartementDashboard";
 import MainLayout from "./layouts/MainLayout";
 import TableauDetail from "./pages/TableauDetail";
-import ChoixAnalyse from "./pages/ChoixAnalyse";
-import AnalyseGraphique from "./pages/AnalyseGraphique";
-
-import AnalyseCarte from "./pages/AnalyseCarte";
 import SourcesPage from "./pages/SourcesPage";
 import RecherchePage from "./pages/RecherchePage";
 import LoginPage from "./pages/LoginPage";
@@ -38,9 +34,6 @@ function App() {
           <Route path="categories/:id" element={<Themes />} />
           <Route path="themes/:id" element={<Tableaux />} />
           <Route path="tableaux/:id" element={<TableauDetail />} />
-          <Route path="/tableaux/:id/analyser" element={<ChoixAnalyse />} />
-          <Route path="/tableaux/:id/analyser/graphique" element={<AnalyseGraphique />} />
-          <Route path="/tableaux/:id/analyser/carte" element={<AnalyseCarte />} />
           <Route path="/sources" element={<SourcesPage />}/>,
           <Route path="/recherche" element={<RecherchePage />} />
           <Route path="/login" element={<LoginPage />} />

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import InfoCard from "../Components/InfoCard";
-import axios from "axios";
+import axiosInstance from "../utils/axiosInstance";
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -12,7 +12,7 @@ import {
   FaChartLine,
   FaDatabase,
   FaSearch,
-} from "react-icons/fa";
+} from "react-icons/fa/index.js";
 
 /* ================= TITRE DE SECTION ================= */
 const SectionTitle = ({ title }: { title: string }) => (
@@ -180,7 +180,7 @@ const DomainesCouvertsLiens = () => {
   const [themes, setThemes] = useState<any[]>([]);
 
   useEffect(() => {
-    axios.get("/api/themes/").then((res) => setThemes(res.data));
+    axiosInstance.get("/themes/").then((res:any) => setThemes(res.data));
   }, []);
 
   const normalize = (str: string) =>

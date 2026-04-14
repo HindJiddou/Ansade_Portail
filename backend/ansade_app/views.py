@@ -1732,6 +1732,7 @@ from .models import Theme, Tableau, Donnees
 
 
 class ExportThemeAPIView(APIView):
+    permission_classes = [IsAuthenticated]
     """
     Exporte tous les tableaux d'un thème dans un seul fichier Excel.
     Chaque tableau = une feuille Excel utilisant tableau.nom_feuille.

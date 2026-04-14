@@ -167,9 +167,14 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CORS_ALLOW_ALL_ORIGINS = False
 
 CORS_ALLOWED_ORIGINS = [
-    "http://102.216.27.135:5173",  # ✅ ton site React public
-    "http://localhost:5173",       # ✅ pour tes tests en local
-    "http://127.0.0.1:5173",       # ✅ aussi pour tests locaux
+    "http://102.216.27.135:5173",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+
+    # ✅ AJOUT ICI
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+
 ]
 
 CORS_ALLOW_CREDENTIALS = True

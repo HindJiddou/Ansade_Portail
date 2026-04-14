@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import axios from "axios";
+import axiosInstance from "../utils/axiosInstance";
 import { motion } from "framer-motion";
 import {
   FaUserFriends,
@@ -41,18 +41,18 @@ export default function Themes() {
     if (!id) return;
 
     // Charger les thèmes de cette catégorie
-    axios
-      .get("/api/themes/")
-      .then((res) => {
+    axiosInstance
+      .get("/themes/")
+      .then((res:any) => {
         const filtered = res.data.filter((t: Theme) => t.categorie === parseInt(id, 10));
         setThemes(filtered);
       })
       .catch(console.error);
 
     // Charger la catégorie (pour le titre)
-    axios
-      .get(`/api/categories/${id}/`)
-      .then((res) => setCategorie(res.data))
+    axiosInstance
+      .get(`/categories/${id}/`)
+      .then((res:any) => setCategorie(res.data))
       .catch(console.error);
   }, [id]);
 
