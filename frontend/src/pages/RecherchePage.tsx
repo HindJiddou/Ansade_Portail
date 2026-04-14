@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import axiosInstance from "../utils/axiosInstance";
 import { Link } from "react-router-dom";
-import { FaSearch, FaDatabase } from "react-icons/fa/index.js";
+import { FaSearch, FaDatabase } from "react-icons/fa";
 
 interface Resultat {
   type: string;

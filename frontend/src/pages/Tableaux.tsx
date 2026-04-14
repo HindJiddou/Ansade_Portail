@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import axiosInstance from "../utils/axiosInstance";
 import { motion } from "framer-motion";
 import BackButton from "./BackButton";
-import { FaSearch, FaRegEye, FaDownload, FaTable } from "react-icons/fa/index.js";
+import { FaSearch, FaRegEye, FaDownload, FaTable } from "react-icons/fa";
 import * as XLSX from "xlsx"; // 👉 AJOUT EXPORT
 import { isAdminOrChef } from "../utils/auth";
 

@@ -12,7 +12,7 @@ import {
   FaChartLine,
   FaDatabase,
   FaSearch,
-} from "react-icons/fa/index.js";
+} from "react-icons/fa";
 
 /* ================= TITRE DE SECTION ================= */
 const SectionTitle = ({ title }: { title: string }) => (

@@ -7,7 +7,7 @@ import {
   FaArrowLeft,
   FaChevronRight,
   FaChevronDown,
-} from "react-icons/fa/index.js";
+} from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 
 const SourcesPage: React.FC = () => {

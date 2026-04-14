@@ -9,7 +9,7 @@ import {
   FaLeaf,
   FaChartLine,
   FaFolderOpen,
-} from "react-icons/fa/index.js";
+} from "react-icons/fa";
 import BackButton from "./BackButton";
 
 interface Categorie { id: number; nom_cat: string; }
@@ -69,8 +69,7 @@ export default function Categories() {
       <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-8">
         {filtered.map((cat) => {
           const meta = metaByCategory(cat.nom_cat);
-          const Icon = meta.icon;
-
+          const Icon = meta.icon as React.ElementType;
           return (
             <motion.button
               key={cat.id}
